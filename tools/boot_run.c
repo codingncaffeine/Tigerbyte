@@ -40,6 +40,8 @@ int main(int argc, char **argv)
       uint16_t pc = c.pc;
       sm8521_disasm(dis, sizeof dis, pc, gcbus_read, &bus);
       sm8521_step(&c);
+      /* stand in for a peripheral wake (real timer/display IRQs arrive later) */
+      if (c.stopped || c.halted) sm8521_set_irq(&c, SM_CK, 1);
       printf("%04X: %-22s PC=%04X SP=%04X PS1=%02X MMU=%02X.%02X.%02X.%02X\n",
              pc, dis, c.pc, c.sp, c.ps1,
              bus.ram[0x25], bus.ram[0x26], bus.ram[0x27], bus.ram[0x28]);

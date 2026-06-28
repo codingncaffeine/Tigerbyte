@@ -276,6 +276,7 @@ static void process_interrupts(sm8521_t *c)
    for (int line = 0; line < 11; line++) {
       if (!(c->iflags & (1u << line))) continue;
       c->halted = 0;
+      c->stopped = 0;            /* any pending interrupt wakes HALT and STOP */
       c->ps0 = c->rd(c->ctx, 0x1e);
       c->ps1 = c->rd(c->ctx, 0x1f);
       uint8_t ie0 = c->rd(c->ctx, 0x10), ie1 = c->rd(c->ctx, 0x11);
@@ -388,6 +389,8 @@ int sm8521_step(sm8521_t *c)
       int8_t off = (int8_t)fb(c); int set = (rb(c, addr) & bit) != 0;
       if (op == 0x2A ? !set : set) c->pc = (uint16_t)(c->pc + off);
    } else if (op == 0x2E) { uint8_t v = fb(c); c->ps0 = v; wb(c, 0x1e, v); } /* mov PS0,i */
+     else if (op == 0x2C) { a1 = fb(c); { uint16_t v = rw(c, a1); v = (v & 0x80) ? (uint16_t)(v | 0xFF00) : (uint16_t)(v & 0x00FF); ww(c, a1, v); } } /* exts */
+     else if (op == 0x2F) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~FV; if ((rb(c, a1) & a2) == 0) c->ps1 |= FZ; else c->ps1 &= (uint8_t)~FZ; } /* btst */
      else if (op <= 0x37 && op >= 0x30) { ptr = arg_rmw(c, &dst); alu8(c, op & 7, dst, rb(c, ptr)); }
      else if (op == 0x38) { ptr = arg_rmw(c, &dst); wb(c, dst, rb(c, ptr)); }  /* mov rmw (load) */
      else if (op == 0x39) { ptr = arg_rmw(c, &dst); wb(c, ptr, rb(c, dst)); }  /* mov mwr (store) */
@@ -405,8 +408,16 @@ int sm8521_step(sm8521_t *c)
      else if (op == 0x49) { t = fw(c); push16(c, c->pc); c->pc = t; }         /* call addr */
      else if (op == 0x4A) { a1 = fb(c); a2 = fb(c); ww(c, a2, rw(c, a1)); }   /* movw SS */
      else if (op == 0x4B) { uint8_t r = fb(c); t = fw(c); ww(c, r, t); }      /* movw Sw */
+     else if (op == 0x4C) { a1 = fb(c); a2 = fb(c); { uint16_t res = (uint16_t)(rb(c, a2 | 1) * rb(c, a1)); ww(c, a2, res); c->ps1 &= (uint8_t)~(FZ | FV); if (res == 0) c->ps1 |= FZ; } } /* mult RR */
+     else if (op == 0x4D) { a1 = fb(c); a2 = fb(c); { uint16_t res = (uint16_t)(rb(c, a2 | 1) * a1); ww(c, a2, res); c->ps1 &= (uint8_t)~(FZ | FV); if (res == 0) c->ps1 |= FZ; } } /* mult iR */
+     else if (op == 0x4E) { a1 = fb(c); a2 = fb(c); { uint8_t bit = (uint8_t)(1 << (a1 & 7)); if ((a1 & 0xC0) == 0x40) { uint8_t v = rb(c, a2); v = (uint8_t)((c->ps1 & FB) ? (v | bit) : (v & ~bit)); wb(c, a2, v); } else if ((a1 & 0xC0) == 0x00) { c->ps1 &= (uint8_t)(FC | FS | FD | FH | FI); c->ps1 |= (rb(c, a2) & bit) ? FB : FZ; } } } /* bmov */
+     else if (op == 0x4F) { a1 = fb(c); a2 = fb(c); { uint8_t bit = (uint8_t)(a1 & 7); uint8_t s1 = (uint8_t)(rb(c, a2) & (1 << bit)); uint8_t s2 = (uint8_t)(((c->ps1 & FB) >> 1) << bit); switch (a1 & 0xC0) { case 0x00: c->ps1 &= (uint8_t)~(FZ | FV); if (s1 == s2) c->ps1 |= FZ; break; case 0x40: c->ps1 &= (uint8_t)~(FZ | FV | FB); c->ps1 |= (s1 & s2) ? FB : FZ; break; case 0x80: c->ps1 &= (uint8_t)~(FZ | FV | FB); c->ps1 |= (s1 | s2) ? FB : FZ; break; default: c->ps1 &= (uint8_t)~(FZ | FV | FB); c->ps1 |= (s1 ^ s2) ? FB : FZ; break; } } } /* bcmp/band/bor/bxor */
      else if (op >= 0x50 && op <= 0x57) { a1 = fb(c); a2 = fb(c); alu8(c, op & 7, a2, a1); } /* ALU iR (imm,Raddr) */
      else if (op == 0x58) { a1 = fb(c); a2 = fb(c); wb(c, a2, a1); }          /* mov iR */
+     else if (op == 0x5C) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~(FZ | FV); { uint8_t dv = rb(c, (uint16_t)(a1 + 1)); if (dv) { uint16_t num = rw(c, a2); uint16_t q = (uint16_t)(num / dv); wb(c, a1, (uint8_t)(num % dv)); ww(c, a2, q); if (q == 0) c->ps1 |= FZ; } else c->ps1 |= FV; } } /* div RR */
+     else if (op == 0x5D) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~(FZ | FV); if (a1) { uint16_t q = (uint16_t)(rw(c, a2) / a1); ww(c, a2, q); if (q == 0) c->ps1 |= FZ; } else c->ps1 |= FV; } /* div iR */
+     else if (op == 0x5E) { a1 = fb(c); m = fb(c); a2 = fb(c); wb(c, a1, (uint8_t)((rb(c, a1) & m) | rb(c, a2))); } /* movm RiR */
+     else if (op == 0x5F) { a1 = fb(c); m = fb(c); a2 = fb(c); wb(c, a1, (uint8_t)((rb(c, a1) & m) | a2)); } /* movm Rii */
      else if (op >= 0x60 && op <= 0x67) { m = fb(c); if ((m & 0xC0) == 0) alu16(c, op & 7, B2W[(m >> 3) & 7], rw(c, B2W[m & 7])); } /* ALUW SS */
      else if (op >= 0x68 && op <= 0x6F) { uint8_t r = fb(c); t = fw(c); alu16(c, op & 7, r, t); } /* ALUW Sw */
      else if (op >= 0x70 && op <= 0x77) {   /* dbnz r,rel */
