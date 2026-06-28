@@ -16,7 +16,7 @@ enum {
    AM_R, AM_rr, AM_S, AM_1A, AM_1B, AM_riB, AM_rmb, AM_mbr, AM_bid, AM_i,
    AM_Ri, AM_rmw, AM_mwr, AM_smw, AM_mws, AM_ss, AM_2, AM_RR, AM_ii, AM_SS,
    AM_Sw, AM_iR, AM_iS, AM_bR, AM_4F, AM_5A, AM_5B, AM_RiR, AM_Rii, AM_rib,
-   AM_riw, AM_Rbr, AM_cjp, AM_Rb, AM_rR, AM_Rr, AM_pi, AM_cbr, AM_CALS
+   AM_riw, AM_rbr, AM_Rbr, AM_cjp, AM_Rb, AM_rR, AM_Rr, AM_pi, AM_cbr, AM_CALS
 };
 
 typedef struct { const char *m; unsigned char am; } op_t;
@@ -58,8 +58,8 @@ static const op_t OPS[256] = {
    /* 64 */ {"sbcw",AM_SS},{"andw",AM_SS},{"orw",AM_SS},{"xorw",AM_SS},
    /* 68 */ {"cmpw",AM_Sw},{"addw",AM_Sw},{"subw",AM_Sw},{"adcw",AM_Sw},
    /* 6C */ {"sbcw",AM_Sw},{"andw",AM_Sw},{"orw",AM_Sw},{"xorw",AM_Sw},
-   /* 70 */ {"dbnz",AM_Rbr},{"dbnz",AM_Rbr},{"dbnz",AM_Rbr},{"dbnz",AM_Rbr},
-   /* 74 */ {"dbnz",AM_Rbr},{"dbnz",AM_Rbr},{"dbnz",AM_Rbr},{"dbnz",AM_Rbr},
+   /* 70 */ {"dbnz",AM_rbr},{"dbnz",AM_rbr},{"dbnz",AM_rbr},{"dbnz",AM_rbr},
+   /* 74 */ {"dbnz",AM_rbr},{"dbnz",AM_rbr},{"dbnz",AM_rbr},{"dbnz",AM_rbr},
    /* 78 */ {"movw",AM_riw},{"movw",AM_riw},{"movw",AM_riw},{"movw",AM_riw},
    /* 7C */ {"movw",AM_riw},{"movw",AM_riw},{"movw",AM_riw},{"movw",AM_riw},
    /* 80 */ {"bbc",AM_Rbr},{"bbc",AM_Rbr},{"bbc",AM_Rbr},{"bbc",AM_Rbr},
@@ -147,6 +147,8 @@ int sm8521_disasm(char *out, size_t outsz, uint16_t pc,
       else                 EMIT("BF,R%02X,#%u", ea2, ea&7);
       break;
    case AM_cbr: off = (int8_t)fetch(ctx,pos++); EMIT("%s,$%04X", COND[op&15], (uint16_t)(pos+off)); break;
+   case AM_rbr: off = (int8_t)fetch(ctx,pos++);
+                EMIT("r%u,$%04X", op&7, (uint16_t)(pos+off)); break;
    case AM_Rbr: ea = fetch(ctx,pos++); off = (int8_t)fetch(ctx,pos++);
                 EMIT("R%02X,#%u,$%04X", ea, op&7, (uint16_t)(pos+off)); break;
    case AM_cjp: imm = (uint16_t)(fetch(ctx,pos++)<<8); imm |= fetch(ctx,pos++);
