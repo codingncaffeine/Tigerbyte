@@ -109,7 +109,10 @@ uint8_t gcbus_read(void *ctx, uint16_t addr)
       uint32_t off  = ((uint32_t)page << 13) | (addr & 0x1FFF);
       if (page < 0x20)
          return b->krom[off & (GC_KROM_SIZE - 1)];
-      return b->cart_loaded ? b->cart[off & (GC_CART_SIZE - 1)] : 0xFF;
+      /* cart pages only respond when P3[7:6] selects slot 1 and a cart is in */
+      if (b->cart_loaded && (b->ram[0x17] & 0xC0) == 0x40)
+         return b->cart[off & (GC_CART_SIZE - 1)];
+      return 0xFF;
    }
    if (addr < 0xE000)                        /* VRAM is write-only to the CPU */
       return 0;

@@ -35,9 +35,11 @@ int main(int argc, char **argv)
    uint8_t hold = be ? (uint8_t)strtoul(be, NULL, 16) : 0xFF;
    int tcol = -1, trow = 0;
    if (te) sscanf(te, "%d,%d", &tcol, &trow);
+   /* a proper tap: press for ~8 frames, then release (a touch UI acts on release) */
+   int t0 = frames / 3, t1 = t0 + 8;
    int audio_peak = 0;
    for (int f = 0; f < frames && !sys.cpu.trapped; f++) {
-      int act = f > frames / 3;
+      int act = (f >= t0 && f < t1);
       gcbus_set_buttons(&sys.bus, act ? hold : 0xFF, 0xFF, 0xFF);
       for (int c = 0; c < 13; c++) gcbus_set_touch(&sys.bus, c, 0);
       if (act && tcol >= 0) gcbus_set_touch(&sys.bus, tcol, (uint16_t)(1 << trow));
@@ -46,7 +48,15 @@ int main(int argc, char **argv)
          int v = sys.audio[k * 2]; if (v < 0) v = -v; if (v > audio_peak) audio_peak = v;
       }
    }
-   printf("[audio peak amplitude: %d  SGC=%02X]\n", audio_peak, sys.bus.ram[0x40]);
+   {
+      int cart_mapped = sys.bus.ram[0x25] >= 0x20 || sys.bus.ram[0x26] >= 0x20 ||
+                        sys.bus.ram[0x27] >= 0x20 || sys.bus.ram[0x28] >= 0x20;
+      int win = (sys.cpu.pc >= 0x2000 && sys.cpu.pc < 0xA000) ? (sys.cpu.pc - 0x2000) / 0x2000 : -1;
+      int cart_pc = win >= 0 && sys.bus.ram[0x25 + win] >= 0x20;
+      printf("[cart: pc-in-cart=%s mapped=%s  MMU=%02X.%02X.%02X.%02X  audiopeak=%d]\n",
+             cart_pc ? "YES" : "no", cart_mapped ? "YES" : "no",
+             sys.bus.ram[0x25], sys.bus.ram[0x26], sys.bus.ram[0x27], sys.bus.ram[0x28], audio_peak);
+   }
    {
       int win = (sys.cpu.pc >= 0x2000 && sys.cpu.pc < 0xA000) ? (sys.cpu.pc - 0x2000) / 0x2000 : -1;
       int cart_code = win >= 0 && sys.bus.ram[0x25 + win] >= 0x20;
