@@ -46,4 +46,8 @@ void gcsystem_run_frame(gcsystem_t *s)
    b->ram[0x32] |= 0x80;
    if ((b->ram[0x10] & 0x01) && (b->ram[0x1f] & 0x01) && ((b->ram[0x1e] & 7) < 5))
       sm8521_set_irq(c, SM_LCDC, 1);
+
+   /* one frame of audio from the current sound-register state */
+   s->audio_samples = (int)(44100.0 / 59.732155);          /* ~738 */
+   gc_sound_generate(&s->snd, b->ram, s->audio, s->audio_samples, 44100);
 }

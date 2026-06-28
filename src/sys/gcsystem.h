@@ -11,10 +11,14 @@
 
 #include "cpu/sm8521.h"
 #include "gcbus.h"
+#include "sound.h"
 
 typedef struct {
-   gcbus_t  bus;
-   sm8521_t cpu;
+   gcbus_t    bus;
+   sm8521_t   cpu;
+   gc_sound_t snd;
+   int16_t    audio[2048 * 2];   /* one frame of interleaved-stereo output */
+   int        audio_samples;
 } gcsystem_t;
 
 void gcsystem_init(gcsystem_t *s);

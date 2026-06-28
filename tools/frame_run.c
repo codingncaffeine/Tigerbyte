@@ -35,13 +35,18 @@ int main(int argc, char **argv)
    uint8_t hold = be ? (uint8_t)strtoul(be, NULL, 16) : 0xFF;
    int tcol = -1, trow = 0;
    if (te) sscanf(te, "%d,%d", &tcol, &trow);
+   int audio_peak = 0;
    for (int f = 0; f < frames && !sys.cpu.trapped; f++) {
       int act = f > frames / 3;
       gcbus_set_buttons(&sys.bus, act ? hold : 0xFF, 0xFF, 0xFF);
       for (int c = 0; c < 13; c++) gcbus_set_touch(&sys.bus, c, 0);
       if (act && tcol >= 0) gcbus_set_touch(&sys.bus, tcol, (uint16_t)(1 << trow));
       gcsystem_run_frame(&sys);
+      for (int k = 0; k < sys.audio_samples; k++) {
+         int v = sys.audio[k * 2]; if (v < 0) v = -v; if (v > audio_peak) audio_peak = v;
+      }
    }
+   printf("[audio peak amplitude: %d  SGC=%02X]\n", audio_peak, sys.bus.ram[0x40]);
    {
       int win = (sys.cpu.pc >= 0x2000 && sys.cpu.pc < 0xA000) ? (sys.cpu.pc - 0x2000) / 0x2000 : -1;
       int cart_code = win >= 0 && sys.bus.ram[0x25 + win] >= 0x20;

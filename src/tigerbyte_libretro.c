@@ -141,9 +141,13 @@ void retro_run(void)
 
    video_cb(framebuffer, GC_W, GC_H, GC_W * sizeof(uint32_t));
 
-   int frames = (int)(GC_SAMPLE_RATE / GC_FPS);
-   if (frames > GC_AUDIO_MAX) frames = GC_AUDIO_MAX;
-   audio_batch_cb(audio_frame, frames);
+   if (system_ready) {
+      audio_batch_cb(sys.audio, sys.audio_samples);
+   } else {
+      int frames = (int)(GC_SAMPLE_RATE / GC_FPS);
+      if (frames > GC_AUDIO_MAX) frames = GC_AUDIO_MAX;
+      audio_batch_cb(audio_frame, frames);
+   }
 }
 
 /* ---- BIOS loading from the system directory ---- */
