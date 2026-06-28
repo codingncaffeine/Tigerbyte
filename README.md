@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/tigerbyte_banner.png" alt="Tigerbyte" width="720"></p>
+
 # Tigerbyte
 
 A work-in-progress [libretro](https://www.libretro.com/) core emulating the
