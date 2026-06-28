@@ -29,8 +29,13 @@ int main(int argc, char **argv)
    gcsystem_reset(&sys);
 
    int frames = atoi(argv[3]);
-   for (int f = 0; f < frames && !sys.cpu.trapped; f++)
+   /* optional input injection for experiments: TB_IN0=hex held after 1/3 of the run */
+   const char *be = getenv("TB_IN0");
+   uint8_t hold = be ? (uint8_t)strtoul(be, NULL, 16) : 0xFF;
+   for (int f = 0; f < frames && !sys.cpu.trapped; f++) {
+      gcbus_set_buttons(&sys.bus, (f > frames / 3) ? hold : 0xFF, 0xFF, 0xFF);
       gcsystem_run_frame(&sys);
+   }
 
    printf("ran %d frames  PC=%04X  LCDC=%02X  trapped=%d(op %02X)\n",
           frames, sys.cpu.pc, sys.bus.ram[0x30], sys.cpu.trapped, sys.cpu.trap_op);

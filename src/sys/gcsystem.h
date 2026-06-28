@@ -22,6 +22,7 @@ void gcsystem_reset(gcsystem_t *s);
 int  gcsystem_load_internal(gcsystem_t *s, const char *path);
 int  gcsystem_load_external(gcsystem_t *s, const char *path);
 int  gcsystem_load_cart(gcsystem_t *s, const char *path);
+void gcsystem_load_cart_mem(gcsystem_t *s, const uint8_t *data, size_t size);
 
 /* Run one display frame: CPU + timers, then the vblank interrupt. */
 void gcsystem_run_frame(gcsystem_t *s);

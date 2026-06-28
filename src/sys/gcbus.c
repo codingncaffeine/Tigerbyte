@@ -77,15 +77,21 @@ int gcbus_load_external(gcbus_t *b, const char *path)
    return (n == GC_KROM_SIZE) ? 0 : 1;
 }
 
+void gcbus_load_cart_mem(gcbus_t *b, const uint8_t *data, size_t size)
+{
+   if (!data || size == 0) return;
+   /* mirror-fill the 2 MB cartridge window with the image */
+   for (size_t off = 0; off < GC_CART_SIZE; off += size)
+      memcpy(b->cart + off, data, (off + size <= GC_CART_SIZE) ? size : (GC_CART_SIZE - off));
+   b->cart_loaded = 1;
+}
+
 int gcbus_load_cart(gcbus_t *b, const char *path)
 {
-   uint8_t tmp[GC_CART_SIZE];
+   static uint8_t tmp[GC_CART_SIZE];   /* static: avoid a 2 MB stack buffer */
    long n = load_file(path, tmp, GC_CART_SIZE);
    if (n <= 0) return 1;
-   /* mirror-fill the 2 MB cartridge window with the image */
-   for (size_t off = 0; off < GC_CART_SIZE; off += (size_t)n)
-      memcpy(b->cart + off, tmp, (off + (size_t)n <= GC_CART_SIZE) ? (size_t)n : (GC_CART_SIZE - off));
-   b->cart_loaded = 1;
+   gcbus_load_cart_mem(b, tmp, (size_t)n);
    return 0;
 }
 

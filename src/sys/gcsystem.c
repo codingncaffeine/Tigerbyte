@@ -23,6 +23,7 @@ void gcsystem_reset(gcsystem_t *s) { sm8521_reset(&s->cpu); }
 int gcsystem_load_internal(gcsystem_t *s, const char *p) { return gcbus_load_internal(&s->bus, p); }
 int gcsystem_load_external(gcsystem_t *s, const char *p) { return gcbus_load_external(&s->bus, p); }
 int gcsystem_load_cart(gcsystem_t *s, const char *p)     { return gcbus_load_cart(&s->bus, p); }
+void gcsystem_load_cart_mem(gcsystem_t *s, const uint8_t *d, size_t n) { gcbus_load_cart_mem(&s->bus, d, n); }
 
 void gcsystem_run_frame(gcsystem_t *s)
 {

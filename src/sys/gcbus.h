@@ -54,6 +54,7 @@ void gcbus_init(gcbus_t *b);
 int gcbus_load_internal(gcbus_t *b, const char *path);
 int gcbus_load_external(gcbus_t *b, const char *path);
 int gcbus_load_cart(gcbus_t *b, const char *path);
+void gcbus_load_cart_mem(gcbus_t *b, const uint8_t *data, size_t size);
 
 void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user);
 
