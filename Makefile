@@ -12,7 +12,11 @@ CC      ?= gcc
 CFLAGS  := -O2 -Wall -Wextra -std=c99 -Isrc
 LDFLAGS := -shared
 
-SOURCES := src/tigerbyte_libretro.c
+SOURCES := src/tigerbyte_libretro.c \
+           src/cpu/sm8521.c \
+           src/sys/gcbus.c \
+           src/sys/ppu.c \
+           src/sys/gcsystem.c
 OBJECTS := $(SOURCES:.c=.o)
 
 # ---- platform selection ----
@@ -69,6 +73,11 @@ $(REND): tools/render_test.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c
 FRAME := frame_run$(EXE)
 framerun: $(FRAME)
 $(FRAME): tools/frame_run.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c src/sys/gcsystem.c
+	$(CC) $(TOOLCFLAGS) -o $@ $^
+
+HOST := libretro_host$(EXE)
+host: $(HOST)
+$(HOST): tools/libretro_host.c
 	$(CC) $(TOOLCFLAGS) -o $@ $^
 
 clean:
