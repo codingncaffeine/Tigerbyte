@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Tigerbyte - SM8521 executing core. See sm8521.h for notes. */
 #include "sm8521.h"
 

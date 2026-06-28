@@ -33,6 +33,9 @@ included with the core. Place your own copies in your frontend's system director
 
 ## License
 
-Intended to be permissively licensed (MIT). Emulation is written from
-manufacturer documentation and clean-room reference; no GPL emulator code is
-incorporated.
+Licensed under the **GNU General Public License v3.0 or later** — see
+[LICENSE](LICENSE).
+
+Portions of the SM8521 CPU and hardware emulation were developed with reference
+to the MAME project's BSD-3-Clause SM8500 driver (© Wilbert Pol, Robbbert); that
+attribution is retained in the relevant source files.

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Tigerbyte - Sharp SM8521 (SM85CPU) instruction decoder / disassembler.
  *
@@ -5,10 +6,9 @@
  * every opcode's length and operand layout, so both the disassembler and the
  * (later) executor agree on how to parse an instruction stream.
  *
- * Opcode encodings transcribed from the Sharp SM8521 datasheet (instruction
- * summary + 23 addressing modes, pp.51-54) cross-referenced against MAME's
- * BSD-3-Clause SM8500 disassembler (factual opcode map). Tigerbyte's code is
- * original and MIT-licensed.
+ * Opcode encodings follow the Sharp SM8521 datasheet (instruction summary + 23
+ * addressing modes, pp.51-54), adapted from MAME's BSD-3-Clause SM8500
+ * disassembler (© Wilbert Pol). Licensed GPL-3.0-or-later; see LICENSE.
  */
 #ifndef TIGERBYTE_SM8521_DISASM_H
 #define TIGERBYTE_SM8521_DISASM_H

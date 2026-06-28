@@ -1,10 +1,11 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Tigerbyte - Sharp SM8521 (SM85CPU) executing core.
  *
- * Original implementation. Instruction semantics follow the Sharp SM8521
- * datasheet's instruction summary + 23 addressing modes; opcode encodings,
- * flag rules and the banked-register model were cross-referenced against MAME's
- * BSD-3-Clause SM8500 core (facts). MIT-licensed.
+ * Instruction semantics follow the Sharp SM8521 datasheet's instruction summary
+ * + 23 addressing modes; opcode encodings, flag rules and the banked-register
+ * model were adapted from MAME's BSD-3-Clause SM8500 core (© Wilbert Pol,
+ * Robbbert). Licensed GPL-3.0-or-later; see LICENSE.
  *
  * The CPU sees a 16-bit address space through caller-supplied read/write
  * callbacks. The low 16 register-file bytes (r0..r15) are a bank-relative

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Tigerbyte - Sharp SM8521 (SM85CPU) instruction decoder / disassembler.
  * See sm8521_disasm.h for licensing/source notes.
