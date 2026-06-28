@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Tigerbyte - Game.com system memory bus.
  *
@@ -26,6 +27,7 @@ typedef struct {
    uint8_t krom[GC_KROM_SIZE];
    uint8_t cart[GC_CART_SIZE];
    int     cart_loaded;
+   int     dma_done;                     /* set after a blit; frame loop raises DMA IRQ */
 } gcbus_t;
 
 void gcbus_init(gcbus_t *b);

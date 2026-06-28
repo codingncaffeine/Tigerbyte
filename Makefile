@@ -61,7 +61,12 @@ bootrun: $(BOOT)
 $(BOOT): tools/boot_run.c src/cpu/sm8521.c src/cpu/sm8521_disasm.c src/sys/gcbus.c
 	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-clean:
-	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN) $(BOOT)
+REND := render_test$(EXE)
+render: $(REND)
+$(REND): tools/render_test.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c
+	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-.PHONY: all clean spike cpurun bootrun
+clean:
+	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN) $(BOOT) $(REND)
+
+.PHONY: all clean spike cpurun bootrun render

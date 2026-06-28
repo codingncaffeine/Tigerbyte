@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Tigerbyte - Game.com system memory bus. See gcbus.h. */
 #include "gcbus.h"
 #include <stdio.h>
@@ -62,11 +63,75 @@ uint8_t gcbus_read(void *ctx, uint16_t addr)
    return b->ram[addr];                      /* NVRAM / extended I/O */
 }
 
+/* DMA register addresses */
+enum { DMC=0x34, DMX1=0x35, DMY1=0x36, DMDX=0x37, DMDY=0x38,
+       DMX2=0x39, DMY2=0x3A, DMPL=0x3B, DMBR=0x3C, DMVP=0x3D, LCH=0x31 };
+
+/* Hardware sprite blitter. Runs to completion when DMC bit7 is written set. */
+static void gcbus_dma(gcbus_t *b)
+{
+   uint8_t *ram = b->ram;
+   uint8_t  dmc = ram[DMC];
+   int  overwrite = dmc & 0x01;
+   int  mode      = dmc & 0x06;
+   int  adjust_x  = (dmc & 0x08) ? -1 : 1;
+   int  dec_y     = (dmc & 0x10) != 0;
+   uint8_t  bw = ram[DMDX], bh = ram[DMDY];
+   uint8_t  sx = ram[DMX1], sy = ram[DMY1];
+   uint8_t  dx = ram[DMX2], dy = ram[DMY2];
+   uint8_t  pal = ram[DMPL];
+   int  sw = (ram[LCH] & 0x20) ? 50 : 40, dw = sw;
+   uint16_t smask = 0x1FFF, dmask = 0x1FFF;
+   uint8_t *vram  = ram + GC_VRAM_BASE;
+   uint8_t *sbank = vram + ((ram[DMVP] & 1) ? 0x2000 : 0);
+   uint8_t *dbank = vram + ((ram[DMVP] & 2) ? 0x2000 : 0);
+
+   switch (mode) {
+   case 0x00: break;                                  /* VRAM -> VRAM */
+   case 0x02:                                         /* ROM  -> VRAM */
+      sw = 64; smask = 0x3FFF;
+      if (ram[DMBR] < 16) sbank = b->krom + ((uint32_t)ram[DMBR] << 14);
+      else sbank = b->cart + (((uint32_t)ram[DMBR] << 14) & (GC_CART_SIZE - 1));
+      break;
+   case 0x04: sw = 64; sbank = ram + 0xE000; break;   /* ExtRAM -> VRAM */
+   case 0x06: dw = 64; dbank = ram + 0xE000; break;   /* VRAM -> ExtRAM */
+   }
+
+   int sx_cur = sx & 3, dx_cur = dx & 3;
+   int s_cur = sw * sy + (sx >> 2), d_cur = dw * dy + (dx >> 2);
+   int s_line = s_cur, d_line = d_cur;
+
+   for (int yc = 0; yc <= bh; yc++) {
+      for (int xc = 0; xc <= bw; xc++) {
+         uint16_t sa = (uint16_t)(s_cur & smask), da = (uint16_t)(d_cur & dmask);
+         int dadj = (dx_cur ^ 3) << 1, sadj = (sx_cur ^ 3) << 1;
+         uint8_t spix = (sbank[sa] >> sadj) & 3;
+         if (overwrite || spix) {
+            uint8_t other = dbank[da] & (uint8_t)~(3 << dadj);
+            dbank[da] = (uint8_t)(other | (((pal >> (spix << 1)) & 3) << dadj));
+         }
+         sx_cur += adjust_x;
+         if (sx_cur & 4) { s_cur += adjust_x; sx_cur &= 3; }
+         dx_cur++;
+         if (dx_cur & 4) { d_cur++; dx_cur &= 3; }
+      }
+      sx_cur = sx & 3; dx_cur = dx & 3;
+      s_line += dec_y ? -sw : sw; s_cur = s_line;
+      d_line += dw; d_cur = d_line;
+   }
+   ram[DMC] = (uint8_t)(dmc & 0x7F);   /* clear start/busy */
+   b->dma_done = 1;                    /* frame loop raises the DMA interrupt */
+}
+
 void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
 {
    gcbus_t *b = (gcbus_t *)ctx;
 
-   if (addr < 0x1000) { b->ram[addr] = val; return; }   /* RAM/IO (incl MMU regs) */
+   if (addr < 0x1000) {                                  /* RAM/IO (incl MMU regs) */
+      b->ram[addr] = val;
+      if (addr == DMC && (val & 0x80)) gcbus_dma(b);     /* trigger blitter */
+      return;
+   }
    if (addr < 0xA000) return;                            /* ROM windows: ignore */
    b->ram[addr] = val;                                   /* VRAM + NVRAM */
 }
