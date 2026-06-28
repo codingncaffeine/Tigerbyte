@@ -29,12 +29,24 @@ int main(int argc, char **argv)
    gcsystem_reset(&sys);
 
    int frames = atoi(argv[3]);
-   /* optional input injection for experiments: TB_IN0=hex held after 1/3 of the run */
-   const char *be = getenv("TB_IN0");
+   /* input injection for experiments: TB_IN0=hex button held; TB_TAP="col,row"
+      touch held; both applied after 1/3 of the run. */
+   const char *be = getenv("TB_IN0"), *te = getenv("TB_TAP");
    uint8_t hold = be ? (uint8_t)strtoul(be, NULL, 16) : 0xFF;
+   int tcol = -1, trow = 0;
+   if (te) sscanf(te, "%d,%d", &tcol, &trow);
    for (int f = 0; f < frames && !sys.cpu.trapped; f++) {
-      gcbus_set_buttons(&sys.bus, (f > frames / 3) ? hold : 0xFF, 0xFF, 0xFF);
+      int act = f > frames / 3;
+      gcbus_set_buttons(&sys.bus, act ? hold : 0xFF, 0xFF, 0xFF);
+      for (int c = 0; c < 13; c++) gcbus_set_touch(&sys.bus, c, 0);
+      if (act && tcol >= 0) gcbus_set_touch(&sys.bus, tcol, (uint16_t)(1 << trow));
       gcsystem_run_frame(&sys);
+   }
+   {
+      int win = (sys.cpu.pc >= 0x2000 && sys.cpu.pc < 0xA000) ? (sys.cpu.pc - 0x2000) / 0x2000 : -1;
+      int cart_code = win >= 0 && sys.bus.ram[0x25 + win] >= 0x20;
+      printf("[cart code executing: %s  MMU=%02X.%02X.%02X.%02X]\n", cart_code ? "YES" : "no",
+             sys.bus.ram[0x25], sys.bus.ram[0x26], sys.bus.ram[0x27], sys.bus.ram[0x28]);
    }
 
    printf("ran %d frames  PC=%04X  LCDC=%02X  trapped=%d(op %02X)\n",
