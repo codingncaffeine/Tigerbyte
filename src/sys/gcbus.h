@@ -42,6 +42,8 @@ typedef struct {
    gc_timer_t timer[2];                  /* TM0, TM1 */
    gc_irq_fn  irq;                       /* raised on timer overflow / DMA done */
    void      *irq_user;
+   uint8_t    in0, in1, in2;             /* button port states (active-low, 0xFF=none) */
+   uint16_t   grid[13];                  /* touch-screen zone columns (10 rows each) */
    uint32_t   dbg_ovf;                   /* total timer overflows */
    uint32_t   dbg_ovf_raised;            /* overflows that passed the IRQ gate */
 } gcbus_t;
@@ -54,6 +56,13 @@ int gcbus_load_external(gcbus_t *b, const char *path);
 int gcbus_load_cart(gcbus_t *b, const char *path);
 
 void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user);
+
+/* Input state (called by the host each frame).
+ * in0 (active-low): b0 up,b1 down,b2 left,b3 right,b4 menu,b5 pause,b6 sound,b7 A.
+ * in1 (active-low): b0 B, b1 C.   in2 (active-low): b0 power, b1 D.
+ * Touch: set grid[column] bits for pressed rows (0 = released). */
+void gcbus_set_buttons(gcbus_t *b, uint8_t in0, uint8_t in1, uint8_t in2);
+void gcbus_set_touch(gcbus_t *b, int column, uint16_t rows);
 
 /* Advance the timers by `cycles` and raise overflow interrupts via the handler. */
 void gcbus_tick(gcbus_t *b, int cycles);

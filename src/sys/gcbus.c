@@ -7,6 +7,53 @@
 void gcbus_init(gcbus_t *b)
 {
    memset(b, 0, sizeof *b);
+   b->in0 = b->in1 = b->in2 = 0xFF;     /* no buttons pressed (active-low) */
+}
+
+void gcbus_set_buttons(gcbus_t *b, uint8_t in0, uint8_t in1, uint8_t in2)
+{
+   b->in0 = in0; b->in1 = in1; b->in2 = in2;
+}
+void gcbus_set_touch(gcbus_t *b, int column, uint16_t rows)
+{
+   if (column >= 0 && column < 13) b->grid[column] = rows;
+}
+
+/* The kernel strobes P1/P2 to scan one key/touch column; the hardware then
+ * fills P0/P1 with the pressed state for that strobe (mirrors gamecom_m.cpp). */
+static void gc_input_press(gcbus_t *b, uint16_t mux)
+{
+   uint8_t *ram = b->ram;
+   int col;
+   switch (mux) {
+   case 0xFFFB: col = 0;  break;  case 0xFFF7: col = 1;  break;
+   case 0xFFEF: col = 2;  break;  case 0xFFDF: col = 3;  break;
+   case 0xFFBF: col = 4;  break;  case 0xFF7F: col = 5;  break;
+   case 0xFEFF: col = 6;  break;  case 0xFDFF: col = 7;  break;
+   case 0xFBFF: col = 8;  break;  case 0xF7FF: col = 9;  break;
+   case 0xEFFF: col = 10; break;  case 0xDFFF: col = 11; break;
+   case 0xBFFF: col = 12; break;
+   case 0x7FFF:                                  /* d-pad / face keys */
+      ram[0x14] = b->in0;
+      ram[0x15] = (uint8_t)((ram[0x15] & 0xFC) | (b->in1 & 3));
+      return;
+   case 0xFFFF:                                  /* power / button D */
+      ram[0x14] = (uint8_t)((ram[0x14] & 0xFC) | (b->in2 & 3));
+      ram[0x15] = 0xFF;
+      return;
+   default: return;
+   }
+   {                                             /* touch column */
+      uint16_t data = b->grid[col];
+      if (data) {
+         uint16_t sy = (uint16_t)(data ^ 0x3FF);
+         ram[0x14] = (uint8_t)sy;
+         ram[0x15] = (uint8_t)((ram[0x15] & 0xFC) | (sy >> 8));
+      } else {
+         ram[0x14] = 0xFF;
+         ram[0x15] |= 3;
+      }
+   }
 }
 
 static long load_file(const char *path, uint8_t *dst, size_t cap)
@@ -165,6 +212,10 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
 
    if (addr < 0x1000) {                                  /* RAM/IO (incl MMU regs) */
       switch (addr) {
+      case 0x15: case 0x16:  /* P1/P2 strobe -> scan input into P0/P1 */
+         b->ram[addr] = val;
+         gc_input_press(b, (uint16_t)(b->ram[0x15] | (b->ram[0x16] << 8)));
+         return;
       case 0x50:  /* TM0C */
          b->timer[0].enabled = (val & 0x80) != 0;
          b->timer[0].prescale_max = TIMER_LIMIT[val & 7] >> 1;
