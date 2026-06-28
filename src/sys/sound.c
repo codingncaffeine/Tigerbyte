@@ -16,14 +16,27 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
 {
    uint8_t sgc = ram[0x40];
    int master = sgc & 0x80;
-   int en0 = sgc & 0x01, en1 = sgc & 0x02, endac = sgc & 0x08;
+   int en0 = sgc & 0x01, en1 = sgc & 0x02;
 
    int sg0t = ((ram[0x46] << 8) | ram[0x47]) & 0x0FFF;
    int sg1t = ((ram[0x48] << 8) | ram[0x49]) & 0x0FFF;
-   float f0 = (master && en0 && sg0t) ? (2764800.0f / sg0t) / rate : 0.0f;
-   float f1 = (master && en1 && sg1t) ? (2764800.0f / sg1t) / rate : 0.0f;
+   float f0 = (master && en0 && sg0t) ? (2457600.0f / sg0t) / rate : 0.0f;
+   float f1 = (master && en1 && sg1t) ? (2457600.0f / sg1t) / rate : 0.0f;
    int   l0 = ram[0x42] & 0x1F, l1 = ram[0x44] & 0x1F;       /* 5-bit levels */
-   int   use_dac = master && endac;
+   /* DAC fires only when it's the sole active channel (matches hardware/MAME):
+      master + DAC enabled, and SG0/SG1/SG2 all off. Prevents stale DAC bleeding
+      over wavetable music. */
+   int   use_dac = (sgc & 0x8F) == 0x88;
+
+   /* SG2 noise channel — Furnace's reconstruction (32-bit LFSR, taps 0/5/8/13,
+      output toggles on bit-0 edges). Unimplemented in MAME and elsewhere; this is
+      the missing noise SFX (e.g. the Centipede shot). Taps are a best-guess pending
+      a hardware capture. */
+   int   en2  = sgc & 0x04;
+   int   l2   = ram[0x4A] & 0x1F;
+   int   sg2t = ((ram[0x4C] << 8) | ram[0x4D]) & 0x0FFF;
+   float fn   = (master && en2 && sg2t) ? (2457600.0f / sg2t) / rate : 0.0f;
+   if (s->lfsr == 0) s->lfsr = 0x89abcdefu;                 /* seed; 0 is a dead LFSR */
 
    for (int i = 0; i < n; i++) {
       int dval = (dac_n > 0) ? dac_stream[(int)((long)i * dac_n / n)] : ram[0x4E];
@@ -39,6 +52,17 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
          mix += wave_step(&ram[0x70], s->idx[1]) * l1 * 16;
          s->phase[1] += f1;
          while (s->phase[1] >= 1.0f) { s->phase[1] -= 1.0f; s->idx[1] = (s->idx[1] + 1) & 31; }
+      }
+      if (fn > 0.0f) {
+         s->noise_phase += fn;
+         while (s->noise_phase >= 1.0f) {
+            s->noise_phase -= 1.0f;
+            int oldbit = (int)(s->lfsr & 1u);
+            s->lfsr = (s->lfsr >> 1) |
+                      (((s->lfsr ^ (s->lfsr >> 5) ^ (s->lfsr >> 8) ^ (s->lfsr >> 13)) & 1u) << 31);
+            if (oldbit ^ (int)(s->lfsr & 1u)) s->noise_out ^= 1;
+         }
+         mix += ((s->noise_out ? 7 : -8) * l2) * 16;
       }
 
       if (mix > 32767)  mix = 32767;

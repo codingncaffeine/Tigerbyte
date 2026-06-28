@@ -14,8 +14,11 @@
 #include <stdint.h>
 
 typedef struct {
-   float phase[2];      /* wavetable phase accumulators (SG0, SG1) */
-   int   idx[2];        /* current wavetable step (0..31)          */
+   float    phase[2];   /* wavetable phase accumulators (SG0, SG1) */
+   int      idx[2];     /* current wavetable step (0..31)          */
+   uint32_t lfsr;       /* SG2 noise LFSR state                    */
+   int      noise_out;  /* SG2 noise 1-bit toggle output           */
+   float    noise_phase;/* SG2 noise step accumulator              */
 } gc_sound_t;
 
 /* Generate `n` interleaved-stereo int16 samples from the register page `ram`.
