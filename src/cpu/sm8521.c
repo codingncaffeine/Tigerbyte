@@ -369,7 +369,7 @@ int sm8521_step(sm8521_t *c)
       case 0x0A: wb(c, r, rot8(c, 5, v)); break;            /* sra */
       case 0x0B: wb(c, r, rot8(c, 6, v)); break;            /* sll */
       case 0x0C: trap(c, op, at); break;                    /* da  (TODO) */
-      case 0x0D: wb(c, r, rot8(c, 7, v)); break;            /* swap */
+      case 0x0D: wb(c, r, (uint8_t)((v >> 4) | (v << 4))); break;  /* swap (no flags) */
       case 0x0E: push8(c, v); break;                        /* push R */
       case 0x0F: wb(c, r, pop8(c)); break;                  /* pop R  */
       }
