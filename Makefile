@@ -56,7 +56,12 @@ cpurun: $(RUN)
 $(RUN): tools/cpu_run.c src/cpu/sm8521.c src/cpu/sm8521_disasm.c
 	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-clean:
-	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN)
+BOOT := boot_run$(EXE)
+bootrun: $(BOOT)
+$(BOOT): tools/boot_run.c src/cpu/sm8521.c src/cpu/sm8521_disasm.c src/sys/gcbus.c
+	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-.PHONY: all clean spike cpurun
+clean:
+	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN) $(BOOT)
+
+.PHONY: all clean spike cpurun bootrun
