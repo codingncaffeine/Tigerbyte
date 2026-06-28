@@ -25,10 +25,12 @@ endif
 ifeq ($(platform),win)
    TARGET  := $(TARGET_NAME)_libretro.dll
    LDFLAGS += -static-libgcc -Wl,--no-undefined
+   EXE     := .exe
 else ifeq ($(platform),unix)
    TARGET  := $(TARGET_NAME)_libretro.so
    CFLAGS  += -fPIC
    LDFLAGS += -fPIC -Wl,--no-undefined
+   EXE     :=
 else
    $(error Unknown platform '$(platform)' - supported: win, unix)
 endif
@@ -41,7 +43,13 @@ $(TARGET): $(OBJECTS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
-	$(RM) $(OBJECTS) $(TARGET)
+# --- CPU decode spike (native test tool, not part of the core) ---
+SPIKE := cpu_spike$(EXE)
+spike: $(SPIKE)
+$(SPIKE): tools/cpu_spike.c src/cpu/sm8521_disasm.c
+	$(CC) -O2 -Wall -Wextra -std=c99 -Isrc -o $@ $^
 
-.PHONY: all clean
+clean:
+	$(RM) $(OBJECTS) $(TARGET) $(SPIKE)
+
+.PHONY: all clean spike
