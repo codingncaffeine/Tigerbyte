@@ -29,12 +29,12 @@ endif
 
 ifeq ($(platform),win)
    TARGET  := $(TARGET_NAME)_libretro.dll
-   LDFLAGS += -static-libgcc -Wl,--no-undefined
+   LDFLAGS += -static-libgcc -Wl,--no-undefined -s
    EXE     := .exe
 else ifeq ($(platform),unix)
    TARGET  := $(TARGET_NAME)_libretro.so
    CFLAGS  += -fPIC
-   LDFLAGS += -fPIC -Wl,--no-undefined
+   LDFLAGS += -fPIC -Wl,--no-undefined -s
    EXE     :=
 else
    $(error Unknown platform '$(platform)' - supported: win, unix)

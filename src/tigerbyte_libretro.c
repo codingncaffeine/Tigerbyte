@@ -62,7 +62,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "Tigerbyte";
-   info->library_version  = "0.1.0";
+   info->library_version  = "0.2.0";
    info->valid_extensions = "tgc|bin";
    info->need_fullpath    = false;     /* deliver the cart image in game->data */
    info->block_extract    = false;
