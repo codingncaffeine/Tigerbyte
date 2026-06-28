@@ -1,0 +1,18 @@
+# Internal research / planning / design notes — NEVER pushed (public repo).
+/local-notes/
+
+# BIOS / ROMs — copyrighted, never commit.
+*.bin
+*.tgc
+*.zip
+
+# Build artifacts.
+*.dll
+*.so
+*.dylib
+*.o
+*.obj
+*.a
+*.exe
+/obj/
+/build/
