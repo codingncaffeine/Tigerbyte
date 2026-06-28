@@ -145,11 +145,12 @@ void gcbus_tick(gcbus_t *b, int cycles)
          if (b->ram[dreg] >= tm->reload) {
             b->ram[dreg] = 0;
             b->dbg_ovf++;
-            /* latch a request whenever the source is enabled; the CPU delivers it
-               once global interrupts are enabled (it is dropped if still masked). */
+            /* raise only when the source AND global interrupts are enabled
+               (matches MAME; avoids choking the interrupt queue) */
             int ie   = (t == 0) ? (b->ram[0x10] & 0x40) : (b->ram[0x11] & 0x40);
+            int gie  = b->ram[0x1f] & 0x01;
             int prio = (t == 0) ? 1 : ((b->ram[0x1e] & 7) < 4);
-            if (ie && prio && b->irq) {
+            if (ie && gie && prio && b->irq) {
                b->dbg_ovf_raised++;
                b->irq(b->irq_user, (t == 0) ? GC_IRQ_TIM0 : GC_IRQ_TIM1);
             }

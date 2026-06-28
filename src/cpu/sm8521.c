@@ -282,26 +282,26 @@ static void process_interrupts(sm8521_t *c)
       c->ps0 = c->rd(c->ctx, 0x1e);
       c->ps1 = c->rd(c->ctx, 0x1f);
       uint8_t ie0 = c->rd(c->ctx, 0x10), ie1 = c->rd(c->ctx, 0x11);
-      int prio = c->ps0 & 0x07, gie = c->ps1 & FI, vec = 0;
+      int prio = c->ps0 & 0x07, gie = c->ps1 & FI;
       switch (line) {
-      case SM_WDT:  take_interrupt(c, 0x101C); vec = 1; break;
+      case SM_WDT:  take_interrupt(c, 0x101C); break;
       case SM_ILL:
-      case SM_NMI:  take_interrupt(c, 0x101E); vec = 1; break;
-      case SM_DMA:  if ((ie0 & 0x80) && gie) { take_interrupt(c, 0x1000); vec = 1; } break;
-      case SM_TIM0: if ((ie0 & 0x40) && gie) { take_interrupt(c, 0x1002); vec = 1; } break;
-      case SM_EXT:  if ((ie0 & 0x10) && prio < 7 && gie) { take_interrupt(c, 0x1006); vec = 1; } break;
-      case SM_UART: if ((ie0 & 0x08) && prio < 6 && gie) { take_interrupt(c, 0x1008); vec = 1; } break;
-      case SM_LCDC: if ((ie0 & 0x01) && prio < 5 && gie) { take_interrupt(c, 0x100E); vec = 1; } break;
-      case SM_TIM1: if ((ie1 & 0x40) && prio < 4 && gie) { take_interrupt(c, 0x1012); vec = 1; } break;
-      case SM_CK:   if ((ie1 & 0x10) && prio < 3 && gie) { take_interrupt(c, 0x1016); vec = 1; } break;
-      case SM_PIO:  if ((ie1 & 0x04) && prio < 2 && gie) { take_interrupt(c, 0x101A); vec = 1; } break;
+      case SM_NMI:  take_interrupt(c, 0x101E); break;
+      case SM_DMA:  if ((ie0 & 0x80) && gie) take_interrupt(c, 0x1000); break;
+      case SM_TIM0: if ((ie0 & 0x40) && gie) take_interrupt(c, 0x1002); break;
+      case SM_EXT:  if ((ie0 & 0x10) && prio < 7 && gie) take_interrupt(c, 0x1006); break;
+      case SM_UART: if ((ie0 & 0x08) && prio < 6 && gie) take_interrupt(c, 0x1008); break;
+      case SM_LCDC: if ((ie0 & 0x01) && prio < 5 && gie) take_interrupt(c, 0x100E); break;
+      case SM_TIM1: if ((ie1 & 0x40) && prio < 4 && gie) take_interrupt(c, 0x1012); break;
+      case SM_CK:   if ((ie1 & 0x10) && prio < 3 && gie) take_interrupt(c, 0x1016); break;
+      case SM_PIO:  if ((ie1 & 0x04) && prio < 2 && gie) take_interrupt(c, 0x101A); break;
       }
-      if (vec) {                              /* keep the request latched until it vectors */
-         c->iflags &= ~(1u << line);
-         c->wr(c->ctx, 0x1f, c->ps1);
-      }
+      /* a request is consumed whether or not it vectors (matches the hardware /
+         MAME: requests latched while masked are dropped, not queued) */
+      c->iflags &= ~(1u << line);
+      c->wr(c->ctx, 0x1f, c->ps1);
    }
-   c->check_irq = (c->iflags != 0);
+   if (c->iflags == 0) c->check_irq = 0;
 }
 
 /* ---- public API ---- */
@@ -423,7 +423,7 @@ int sm8521_step(sm8521_t *c)
      else if (op == 0x5D) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~(FZ | FV); if (a1) { uint16_t q = (uint16_t)(rw(c, a2) / a1); ww(c, a2, q); if (q == 0) c->ps1 |= FZ; } else c->ps1 |= FV; } /* div iR */
      else if (op == 0x5E) { a1 = fb(c); m = fb(c); a2 = fb(c); wb(c, a1, (uint8_t)((rb(c, a1) & m) | rb(c, a2))); } /* movm RiR */
      else if (op == 0x5F) { a1 = fb(c); m = fb(c); a2 = fb(c); wb(c, a1, (uint8_t)((rb(c, a1) & m) | a2)); } /* movm Rii */
-     else if (op >= 0x60 && op <= 0x67) { m = fb(c); if ((m & 0xC0) == 0) alu16(c, op & 7, B2W[(m >> 3) & 7], rw(c, B2W[m & 7])); } /* ALUW SS */
+     else if (op >= 0x60 && op <= 0x67) { a1 = fb(c); a2 = fb(c); alu16(c, op & 7, a2, rw(c, a1)); } /* ALUW RRr,RRs */
      else if (op >= 0x68 && op <= 0x6F) { uint8_t r = fb(c); t = fw(c); alu16(c, op & 7, r, t); } /* ALUW Sw */
      else if (op >= 0x70 && op <= 0x77) {   /* dbnz r,rel */
       int8_t off = (int8_t)fb(c); uint8_t v = (uint8_t)(rb(c, op & 7) - 1);
