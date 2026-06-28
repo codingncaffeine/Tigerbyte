@@ -33,9 +33,11 @@ void gcsystem_run_frame(gcsystem_t *s)
 
    b->ram[0x32] &= (uint8_t)~0x80;          /* LCV: active display (not vblank) */
    b->dac_stream_n = 0;                     /* start a fresh frame of DAC capture */
+   b->cur_cycle    = 0;
 
    int budget = GC_CYCLES_PER_FRAME;
    while (budget > 0 && !c->trapped) {
+      b->cur_cycle = GC_CYCLES_PER_FRAME - budget;   /* cycle position for DAC write timestamps */
       int cyc = sm8521_step(c);
       gcbus_tick(b, cyc);
       budget -= cyc;
@@ -49,9 +51,10 @@ void gcsystem_run_frame(gcsystem_t *s)
    if ((b->ram[0x10] & 0x01) && (b->ram[0x1f] & 0x01) && ((b->ram[0x1e] & 7) < 5))
       sm8521_set_irq(c, SM_LCDC, 1);
 
-   /* one frame of audio — the wavetable channels from the live registers, the
-      DAC reconstructed from every value the game streamed during the frame */
+   /* one frame of audio — the wavetable channels from the live registers, the DAC
+      resampled from every value the game streamed during the frame, by timestamp */
    s->audio_samples = (int)(44100.0 / 59.732155);          /* ~738 */
-   gc_sound_generate(&s->snd, b->ram, b->dac_stream, b->dac_stream_n,
+   gc_sound_generate(&s->snd, b->ram, b->dac_stream, b->dac_cycle, b->dac_stream_n,
+                     GC_CYCLES_PER_FRAME,
                      s->audio, s->audio_samples, 44100);
 }

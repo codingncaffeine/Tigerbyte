@@ -11,8 +11,8 @@ static int wave_step(const uint8_t *tbl, int idx)
 }
 
 void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
-                       const uint8_t *dac_stream, int dac_n,
-                       int16_t *out, int n, int rate)
+                       const uint8_t *dac_stream, const uint32_t *dac_cycle, int dac_n,
+                       int cyc_per_frame, int16_t *out, int n, int rate)
 {
    uint8_t sgc = ram[0x40];
    int master = sgc & 0x80;
@@ -20,13 +20,18 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
 
    int sg0t = ((ram[0x46] << 8) | ram[0x47]) & 0x0FFF;
    int sg1t = ((ram[0x48] << 8) | ram[0x49]) & 0x0FFF;
-   float f0 = (master && en0 && sg0t) ? (2457600.0f / sg0t) / rate : 0.0f;
-   float f1 = (master && en1 && sg1t) ? (2457600.0f / sg1t) / rate : 0.0f;
+   /* Datasheet p.42: step period = (n-1)/fCK, fCK = system clock = 4.9152 MHz.
+      Tone = fCK / (32 * (n-1)). (MAME's 2,764,800 derives from its wrong crystal;
+      our earlier 2,457,600 put the wavetable an octave too low.) */
+   float f0 = (master && en0 && sg0t > 1) ? (4915200.0f / (sg0t - 1)) / rate : 0.0f;
+   float f1 = (master && en1 && sg1t > 1) ? (4915200.0f / (sg1t - 1)) / rate : 0.0f;
    int   l0 = ram[0x42] & 0x1F, l1 = ram[0x44] & 0x1F;       /* 5-bit levels */
-   /* DAC fires only when it's the sole active channel (matches hardware/MAME):
-      master + DAC enabled, and SG0/SG1/SG2 all off. Prevents stale DAC bleeding
-      over wavetable music. */
-   int   use_dac = (sgc & 0x8F) == 0x88;
+   /* DAC fires only when it's the sole active channel (master + DAC, SG0/SG1/SG2 off) —
+      matches the hardware. BUT SGC is sampled once per frame, so a frame the game ended
+      with sound momentarily disabled was silencing DAC samples it had streamed all frame
+      (heard as a "dip"). If the game wrote DAC samples this frame it was actively
+      streaming, so honor them. */
+   int   use_dac = (dac_n > 0) ? 1 : ((sgc & 0x8F) == 0x88);
 
    /* SG2 noise channel — Furnace's reconstruction (32-bit LFSR, taps 0/5/8/13,
       output toggles on bit-0 edges). Unimplemented in MAME and elsewhere; this is
@@ -35,11 +40,30 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
    int   en2  = sgc & 0x04;
    int   l2   = ram[0x4A] & 0x1F;
    int   sg2t = ((ram[0x4C] << 8) | ram[0x4D]) & 0x0FFF;
-   float fn   = (master && en2 && sg2t) ? (2457600.0f / sg2t) / rate : 0.0f;
+   float fn   = (master && en2 && sg2t > 1) ? (4915200.0f / (sg2t - 1)) / rate : 0.0f;
    if (s->lfsr == 0) s->lfsr = 0x89abcdefu;                 /* seed; 0 is a dead LFSR */
 
+   /* DAC resampling cursor: walk the timestamped writes as the output advances. */
+   int dw = 0;
+   int dac_prev_v = (dac_n > 0) ? dac_stream[0] : ram[0x4E];
+   int dac_prev_c = 0;
+
    for (int i = 0; i < n; i++) {
-      int dval = (dac_n > 0) ? dac_stream[(int)((long)i * dac_n / n)] : ram[0x4E];
+      /* Resample the DAC at this output sample's true cycle position, interpolating
+         between the surrounding writes (the game varies the inter-sample spacing). */
+      int dval;
+      if (dac_n > 0) {
+         long tc = (long)i * cyc_per_frame / n;
+         while (dw < dac_n && (long)dac_cycle[dw] <= tc) {
+            dac_prev_v = dac_stream[dw]; dac_prev_c = (int)dac_cycle[dw]; dw++;
+         }
+         if (dw < dac_n) {
+            int nv = dac_stream[dw], nc = (int)dac_cycle[dw];
+            dval = (nc > dac_prev_c)
+                 ? dac_prev_v + (int)((long)(nv - dac_prev_v) * (tc - dac_prev_c) / (nc - dac_prev_c))
+                 : dac_prev_v;
+         } else dval = dac_prev_v;
+      } else dval = ram[0x4E];
       int dac  = use_dac ? (dval - 128) : 0;
       int mix  = dac * 64;                                   /* 8-bit DAC, scaled for level */
 

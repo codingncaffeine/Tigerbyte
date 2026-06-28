@@ -37,12 +37,19 @@ int main(int argc, char **argv)
    long datastart = ftell(f);
 
    long nsamp = 0;
+   uint32_t last_dac = 0;
    for (int fr = 0; fr < frames; fr++) {
       gcsystem_run_frame(&sys);
       for (int i = 0; i < sys.audio_samples; i++) {
          w16(f, (uint16_t)sys.audio[i * 2]);
          w16(f, (uint16_t)sys.audio[i * 2 + 1]);
          nsamp++;
+      }
+      if ((fr % 30) == 29) {   /* twice/sec: the game's live TIM1 config + our DAC rate */
+         uint32_t d = (sys.bus.snd_dac_writes - last_dac) * 2;  /* -> per second */
+         last_dac = sys.bus.snd_dac_writes;
+         fprintf(stderr, "[%4.1fs] TM1C=%02X TM1D=%02X SGC=%02X | dac/s=%u\n",
+                 (fr + 1) / 59.73, sys.bus.ram[0x52], sys.bus.ram[0x53], sys.bus.ram[0x40], d);
       }
    }
 

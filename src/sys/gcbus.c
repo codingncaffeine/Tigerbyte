@@ -240,10 +240,12 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
       }
       if (addr >= 0x40 && addr <= 0x4F) {                /* sound registers */
          b->snd_reg_writes++;
-         if (addr == 0x4E) {                             /* capture the DAC stream */
+         if (addr == 0x4E) {                             /* capture the DAC stream + write timing */
             b->snd_dac_writes++;
-            if (b->dac_stream_n < (int)sizeof b->dac_stream)
+            if (b->dac_stream_n < (int)(sizeof b->dac_stream)) {
+               b->dac_cycle[b->dac_stream_n]  = (uint32_t)b->cur_cycle;
                b->dac_stream[b->dac_stream_n++] = val;
+            }
          }
       }
       b->ram[addr] = val;
