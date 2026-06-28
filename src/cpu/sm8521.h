@@ -39,6 +39,7 @@ typedef struct {
    int      trapped;                /* set when an unimplemented opcode is hit */
    uint8_t  trap_op;
    uint16_t trap_pc;
+   uint32_t irq_taken;             /* count of interrupts actually vectored */
 
    sm8521_read_fn  rd;
    sm8521_write_fn wr;

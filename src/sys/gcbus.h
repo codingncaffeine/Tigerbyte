@@ -21,13 +21,29 @@
 #define GC_VRAM_BASE  0xA000
 #define GC_VRAM_SIZE  0x4000      /* 16 KB VRAM                        */
 
+/* Interrupt line numbers (match the SM8521 vector order in sm8521.h). */
+enum { GC_IRQ_DMA = 1, GC_IRQ_TIM0 = 2, GC_IRQ_LCDC = 5, GC_IRQ_TIM1 = 6, GC_IRQ_CK = 7 };
+
+typedef void (*gc_irq_fn)(void *user, int line);
+
 typedef struct {
-   uint8_t ram[0x10000];                 /* RAM/IO page, NVRAM, and VRAM backing */
-   uint8_t irom[GC_IROM_SIZE];
-   uint8_t krom[GC_KROM_SIZE];
-   uint8_t cart[GC_CART_SIZE];
-   int     cart_loaded;
-   int     dma_done;                     /* set after a blit; frame loop raises DMA IRQ */
+   int     enabled;
+   uint8_t reload;          /* upcounter target (set when TMxD is written) */
+   int     prescale_max;
+   int     prescale_count;
+} gc_timer_t;
+
+typedef struct {
+   uint8_t    ram[0x10000];              /* RAM/IO page, NVRAM, and VRAM backing */
+   uint8_t    irom[GC_IROM_SIZE];
+   uint8_t    krom[GC_KROM_SIZE];
+   uint8_t    cart[GC_CART_SIZE];
+   int        cart_loaded;
+   gc_timer_t timer[2];                  /* TM0, TM1 */
+   gc_irq_fn  irq;                       /* raised on timer overflow / DMA done */
+   void      *irq_user;
+   uint32_t   dbg_ovf;                   /* total timer overflows */
+   uint32_t   dbg_ovf_raised;            /* overflows that passed the IRQ gate */
 } gcbus_t;
 
 void gcbus_init(gcbus_t *b);
@@ -36,6 +52,11 @@ void gcbus_init(gcbus_t *b);
 int gcbus_load_internal(gcbus_t *b, const char *path);
 int gcbus_load_external(gcbus_t *b, const char *path);
 int gcbus_load_cart(gcbus_t *b, const char *path);
+
+void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user);
+
+/* Advance the timers by `cycles` and raise overflow interrupts via the handler. */
+void gcbus_tick(gcbus_t *b, int cycles);
 
 /* CPU bus callbacks (cast ctx to gcbus_t*). */
 uint8_t gcbus_read(void *ctx, uint16_t addr);

@@ -120,7 +120,42 @@ static void gcbus_dma(gcbus_t *b)
       d_line += dw; d_cur = d_line;
    }
    ram[DMC] = (uint8_t)(dmc & 0x7F);   /* clear start/busy */
-   b->dma_done = 1;                    /* frame loop raises the DMA interrupt */
+   if (b->irq) b->irq(b->irq_user, GC_IRQ_DMA);
+}
+
+/* TM*C prescaler-select -> divisor (halved, per the SM8521 timer). */
+static const int TIMER_LIMIT[8] = { 2, 1024, 2048, 4096, 8192, 16384, 32768, 65536 };
+
+void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user)
+{
+   b->irq = fn;
+   b->irq_user = user;
+}
+
+void gcbus_tick(gcbus_t *b, int cycles)
+{
+   for (int t = 0; t < 2; t++) {
+      gc_timer_t *tm = &b->timer[t];
+      if (!tm->enabled || tm->prescale_max <= 0) continue;
+      tm->prescale_count += cycles;
+      while (tm->prescale_count >= tm->prescale_max) {
+         tm->prescale_count -= tm->prescale_max;
+         uint16_t dreg = (t == 0) ? 0x51 : 0x53;          /* TM0D / TM1D counter */
+         b->ram[dreg]++;
+         if (b->ram[dreg] >= tm->reload) {
+            b->ram[dreg] = 0;
+            b->dbg_ovf++;
+            /* latch a request whenever the source is enabled; the CPU delivers it
+               once global interrupts are enabled (it is dropped if still masked). */
+            int ie   = (t == 0) ? (b->ram[0x10] & 0x40) : (b->ram[0x11] & 0x40);
+            int prio = (t == 0) ? 1 : ((b->ram[0x1e] & 7) < 4);
+            if (ie && prio && b->irq) {
+               b->dbg_ovf_raised++;
+               b->irq(b->irq_user, (t == 0) ? GC_IRQ_TIM0 : GC_IRQ_TIM1);
+            }
+         }
+      }
+   }
 }
 
 void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
@@ -128,6 +163,20 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
    gcbus_t *b = (gcbus_t *)ctx;
 
    if (addr < 0x1000) {                                  /* RAM/IO (incl MMU regs) */
+      switch (addr) {
+      case 0x50:  /* TM0C */
+         b->timer[0].enabled = (val & 0x80) != 0;
+         b->timer[0].prescale_max = TIMER_LIMIT[val & 7] >> 1;
+         b->timer[0].prescale_count = 0;
+         b->ram[0x50] = val; b->ram[0x51] = 0; return;
+      case 0x51:  b->timer[0].reload = val; b->ram[0x51] = 0; return;   /* TM0D */
+      case 0x52:  /* TM1C */
+         b->timer[1].enabled = (val & 0x80) != 0;
+         b->timer[1].prescale_max = TIMER_LIMIT[val & 7] >> 1;
+         b->timer[1].prescale_count = 0;
+         b->ram[0x52] = val; b->ram[0x53] = 0; return;
+      case 0x53:  b->timer[1].reload = val; b->ram[0x53] = 0; return;   /* TM1D */
+      }
       b->ram[addr] = val;
       if (addr == DMC && (val & 0x80)) gcbus_dma(b);     /* trigger blitter */
       return;

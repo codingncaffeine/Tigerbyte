@@ -66,7 +66,12 @@ render: $(REND)
 $(REND): tools/render_test.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c
 	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-clean:
-	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN) $(BOOT) $(REND)
+FRAME := frame_run$(EXE)
+framerun: $(FRAME)
+$(FRAME): tools/frame_run.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c src/sys/gcsystem.c
+	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-.PHONY: all clean spike cpurun bootrun render
+clean:
+	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN) $(BOOT) $(REND) $(FRAME)
+
+.PHONY: all clean spike cpurun bootrun render framerun
