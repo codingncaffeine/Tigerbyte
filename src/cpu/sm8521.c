@@ -233,11 +233,11 @@ static int cond(sm8521_t *c, uint8_t cc)
 static uint16_t arg_rmb(sm8521_t *c, uint8_t *dst)   /* 8-bit pointer register */
 {
    uint8_t m = fb(c); uint16_t s;
-   switch (m & 0xC0) {
-   case 0x00: s = rb(c, m & 7); break;
-   case 0x40: s = rb(c, m & 7); wb(c, m & 7, (uint8_t)(s + 1)); break;
-   case 0x80: { uint8_t i = fb(c); s = i; if (m & 7) s = (uint16_t)(i + rb(c, m & 7)); } break;
-   default:   s = rb(c, m & 7); wb(c, m & 7, (uint8_t)(s - 1)); break;
+   switch (m & 0xC0) {                                   /* am: 0=@r 1=(r)+ 2=@w 3=w(r) 4=-(r) */
+   case 0x00: c->am = 0; s = rb(c, m & 7); break;
+   case 0x40: c->am = 1; s = rb(c, m & 7); wb(c, m & 7, (uint8_t)(s + 1)); break;
+   case 0x80: { uint8_t i = fb(c); s = i; if (m & 7) { c->am = 3; s = (uint16_t)(i + rb(c, m & 7)); } else c->am = 2; } break;
+   default:   c->am = 4; s = rb(c, m & 7); wb(c, m & 7, (uint8_t)(s - 1)); break;
    }
    *dst = (m >> 3) & 7;
    return s;
@@ -245,11 +245,11 @@ static uint16_t arg_rmb(sm8521_t *c, uint8_t *dst)   /* 8-bit pointer register *
 static uint16_t arg_rmw(sm8521_t *c, uint8_t *dst)   /* 16-bit pointer register pair */
 {
    uint8_t m = fb(c); uint16_t s, rp = B2W[m & 7];
-   switch (m & 0xC0) {
-   case 0x00: s = rw(c, rp); break;
-   case 0x40: s = rw(c, rp); ww(c, rp, (uint16_t)(s + 1)); break;
-   case 0x80: { uint16_t i = fw(c); s = i; if (m & 7) s = (uint16_t)(i + rw(c, rp)); } break;
-   default:   s = (uint16_t)(rw(c, rp) - 1); ww(c, rp, s); break;
+   switch (m & 0xC0) {                                   /* am: 0=@rr 1=(rr)+ 2=@ww 3=ww(rr) 4=-(rr) */
+   case 0x00: c->am = 0; s = rw(c, rp); break;
+   case 0x40: c->am = 1; s = rw(c, rp); ww(c, rp, (uint16_t)(s + 1)); break;
+   case 0x80: { uint16_t i = fw(c); s = i; if (m & 7) { c->am = 3; s = (uint16_t)(i + rw(c, rp)); } else c->am = 2; } break;
+   default:   c->am = 4; s = (uint16_t)(rw(c, rp) - 1); ww(c, rp, s); break;
    }
    *dst = (m >> 3) & 7;
    return s;
@@ -358,6 +358,14 @@ static const uint8_t SM_CYCLES[256] = {
     2, 2, 6, 6, 6, 6, 6, 6,10,12, 2, 2, 2, 2, 2, 2,   /* Fx */
 };
 
+/* Per-addressing-mode cycle costs for the memory ALU/MOV opcodes, indexed by the
+   mode arg_rmb/arg_rmw resolved into c->am (0=@r 1=(r)+ 2=@w 3=w(r) 4=-(r)). */
+static const uint8_t CYC_RMB_ALU[5]  = {  7,  8, 10,  8,  9 };  /* 0x20-0x27 */
+static const uint8_t CYC_RMB_LD[5]   = {  6,  7, 10,  7,  8 };  /* 0x28 MOV load  */
+static const uint8_t CYC_RMB_ST[5]   = {  8,  8, 10,  9,  9 };  /* 0x29 MOV store */
+static const uint8_t CYC_RMW[5]      = {  8, 13, 15, 11, 13 };  /* 0x30-0x39 */
+static const uint8_t CYC_RMW_MOVW[5] = { 11, 16, 14, 18, 16 };  /* 0x3A-0x3B MOVW */
+
 int sm8521_step(sm8521_t *c)
 {
    process_interrupts(c);
@@ -408,9 +416,9 @@ int sm8521_step(sm8521_t *c)
       wb(c, addr, (uint8_t)(op == 0x1C ? (v & ~bit) : (v | bit)));
    } else if (op == 0x1E) { uint8_t r = fb(c); push16(c, rw(c, r)); }   /* pushw */
      else if (op == 0x1F) { uint8_t r = fb(c); ww(c, r, pop16(c)); }    /* popw  */
-     else if (op >= 0x20 && op <= 0x27) { ptr = arg_rmb(c, &dst); alu8(c, op & 7, dst, rb(c, ptr)); }
-     else if (op == 0x28) { ptr = arg_rmb(c, &dst); wb(c, dst, rb(c, ptr)); }   /* mov rmb (load) */
-     else if (op == 0x29) { ptr = arg_rmb(c, &dst); wb(c, ptr, rb(c, dst)); }   /* mov mbr (store) */
+     else if (op >= 0x20 && op <= 0x27) { ptr = arg_rmb(c, &dst); cyc = CYC_RMB_ALU[c->am]; alu8(c, op & 7, dst, rb(c, ptr)); }
+     else if (op == 0x28) { ptr = arg_rmb(c, &dst); cyc = CYC_RMB_LD[c->am]; wb(c, dst, rb(c, ptr)); }   /* mov rmb (load) */
+     else if (op == 0x29) { ptr = arg_rmb(c, &dst); cyc = CYC_RMB_ST[c->am]; wb(c, ptr, rb(c, dst)); }   /* mov mbr (store) */
      else if (op == 0x2A || op == 0x2B) {   /* bbc/bbs direct-page bit, relative */
       m = fb(c); uint8_t bit = (uint8_t)(1 << (m & 7)); uint8_t disp = fb(c);
       uint16_t addr = (m & 0x38) ? (uint16_t)(disp + rb(c, (m >> 3) & 7)) : (uint16_t)(0xFF00 + disp);
@@ -419,11 +427,11 @@ int sm8521_step(sm8521_t *c)
    } else if (op == 0x2E) { uint8_t v = fb(c); c->ps0 = v; wb(c, 0x1e, v); } /* mov PS0,i */
      else if (op == 0x2C) { a1 = fb(c); { uint16_t v = rw(c, a1); v = (v & 0x80) ? (uint16_t)(v | 0xFF00) : (uint16_t)(v & 0x00FF); ww(c, a1, v); } } /* exts */
      else if (op == 0x2F) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~FV; if ((rb(c, a1) & a2) == 0) c->ps1 |= FZ; else c->ps1 &= (uint8_t)~FZ; } /* btst */
-     else if (op <= 0x37 && op >= 0x30) { ptr = arg_rmw(c, &dst); alu8(c, op & 7, dst, rb(c, ptr)); }
-     else if (op == 0x38) { ptr = arg_rmw(c, &dst); wb(c, dst, rb(c, ptr)); }  /* mov rmw (load) */
-     else if (op == 0x39) { ptr = arg_rmw(c, &dst); wb(c, ptr, rb(c, dst)); }  /* mov mwr (store) */
-     else if (op == 0x3A) { uint8_t pd; ptr = arg_rmw(c, &pd); ww(c, B2W[pd], rw(c, ptr)); } /* movw smw */
-     else if (op == 0x3B) { uint8_t pd; ptr = arg_rmw(c, &pd); ww(c, ptr, rw(c, B2W[pd])); } /* movw mws */
+     else if (op <= 0x37 && op >= 0x30) { ptr = arg_rmw(c, &dst); cyc = CYC_RMW[c->am]; alu8(c, op & 7, dst, rb(c, ptr)); }
+     else if (op == 0x38) { ptr = arg_rmw(c, &dst); cyc = CYC_RMW[c->am]; wb(c, dst, rb(c, ptr)); }  /* mov rmw (load) */
+     else if (op == 0x39) { ptr = arg_rmw(c, &dst); cyc = CYC_RMW[c->am]; wb(c, ptr, rb(c, dst)); }  /* mov mwr (store) */
+     else if (op == 0x3A) { uint8_t pd; ptr = arg_rmw(c, &pd); cyc = CYC_RMW_MOVW[c->am]; ww(c, B2W[pd], rw(c, ptr)); } /* movw smw */
+     else if (op == 0x3B) { uint8_t pd; ptr = arg_rmw(c, &pd); cyc = CYC_RMW_MOVW[c->am]; ww(c, ptr, rw(c, B2W[pd])); } /* movw mws */
      else if (op == 0x3C) { m = fb(c); if ((m & 0xC0) == 0) ww(c, B2W[(m >> 3) & 7], rw(c, B2W[m & 7])); } /* movw ss */
      else if (op == 0x3E || op == 0x3F) {   /* jmp/call (2) */
       m = fb(c);
