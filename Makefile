@@ -43,13 +43,20 @@ $(TARGET): $(OBJECTS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# --- CPU decode spike (native test tool, not part of the core) ---
+# --- CPU test tools (native, not part of the core) ---
 SPIKE := cpu_spike$(EXE)
+RUN   := cpu_run$(EXE)
+TOOLCFLAGS := -O2 -Wall -Wextra -std=c99 -Isrc
+
 spike: $(SPIKE)
 $(SPIKE): tools/cpu_spike.c src/cpu/sm8521_disasm.c
-	$(CC) -O2 -Wall -Wextra -std=c99 -Isrc -o $@ $^
+	$(CC) $(TOOLCFLAGS) -o $@ $^
+
+cpurun: $(RUN)
+$(RUN): tools/cpu_run.c src/cpu/sm8521.c src/cpu/sm8521_disasm.c
+	$(CC) $(TOOLCFLAGS) -o $@ $^
 
 clean:
-	$(RM) $(OBJECTS) $(TARGET) $(SPIKE)
+	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN)
 
-.PHONY: all clean spike
+.PHONY: all clean spike cpurun
