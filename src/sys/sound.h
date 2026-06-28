@@ -18,8 +18,11 @@ typedef struct {
    int   idx[2];        /* current wavetable step (0..31)          */
 } gc_sound_t;
 
-/* Generate `n` interleaved-stereo int16 samples from the register page `ram`
- * (the low 256 bytes) at output sample rate `rate`. */
-void gc_sound_generate(gc_sound_t *s, const uint8_t *ram, int16_t *out, int n, int rate);
+/* Generate `n` interleaved-stereo int16 samples from the register page `ram`.
+ * `dac_stream`/`dac_n` are the DAC values the CPU wrote during the frame (in order),
+ * stretched across the output to reconstruct the streamed DAC audio. */
+void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
+                       const uint8_t *dac_stream, int dac_n,
+                       int16_t *out, int n, int rate);
 
 #endif /* TIGERBYTE_SOUND_H */

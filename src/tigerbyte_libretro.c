@@ -37,6 +37,19 @@ static retro_log_printf_t         log_cb;
 static void fallback_log(enum retro_log_level lvl, const char *fmt, ...)
 { va_list va; (void)lvl; va_start(va, fmt); vfprintf(stderr, fmt, va); va_end(va); }
 
+/* Direct-to-file debug log next to the system dir — independent of the frontend's
+   log plumbing (whose printf formatter only handles a few varargs). Path set at load. */
+static char g_logpath[600];
+static void tb_log(const char *fmt, ...)
+{
+   FILE *f; va_list va;
+   if (!g_logpath[0]) return;
+   f = fopen(g_logpath, "a");
+   if (!f) return;
+   va_start(va, fmt); vfprintf(f, fmt, va); va_end(va);
+   fclose(f);
+}
+
 /* RetroPad -> Game.com keys (Game.com: d-pad, A/B/C/D, Menu, Pause, Sound). */
 static const struct retro_input_descriptor input_desc[] = {
    { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "Up" },
@@ -143,6 +156,35 @@ void retro_run(void)
 
    if (system_ready) {
       audio_batch_cb(sys.audio, sys.audio_samples);
+
+      /* --- sound debug: a once-per-second summary through the frontend log --- */
+      {
+         static unsigned dbg_frames = 0;
+         static uint32_t last_reg = 0, last_dac = 0;
+         if (++dbg_frames >= 60) {
+            const uint8_t *r = sys.bus.ram;
+            uint32_t reg = sys.bus.snd_reg_writes - last_reg;
+            uint32_t dac = sys.bus.snd_dac_writes - last_dac;
+            int peak = 0, i;
+            last_reg = sys.bus.snd_reg_writes;
+            last_dac = sys.bus.snd_dac_writes;
+            for (i = 0; i < sys.audio_samples; i++) {
+               int v = sys.audio[i * 2]; if (v < 0) v = -v; if (v > peak) peak = v;
+            }
+            tb_log("[snd] SGC=%02X periods=%03X/%03X lvls=%02X/%02X DAC=%02X | writes/s ctrl=%u dac=%u | peak=%d\n",
+               r[0x40], ((r[0x46] << 8) | r[0x47]) & 0xFFF, ((r[0x48] << 8) | r[0x49]) & 0xFFF,
+               r[0x42] & 0x1F, r[0x44] & 0x1F, r[0x4E], reg, dac, peak);
+            {  /* display state — catches a black screen (display off / empty page) */
+               const uint8_t *v = r + 0xA000;
+               uint8_t lcdc = r[0x30];
+               int nz0 = 0, nz1 = 0, k;
+               for (k = 0; k < 0x2000; k++) { if (v[k]) nz0++; if (v[k + 0x2000]) nz1++; }
+               tb_log("[vid] LCDC=%02X en=%d page=%d mode=%d | vram nz: p0=%d p1=%d\n",
+                      lcdc, (lcdc & 0x80) ? 1 : 0, (lcdc & 0x40) ? 1 : 0, (lcdc >> 4) & 3, nz0, nz1);
+            }
+            dbg_frames = 0;
+         }
+      }
    } else {
       int frames = (int)(GC_SAMPLE_RATE / GC_FPS);
       if (frames > GC_AUDIO_MAX) frames = GC_AUDIO_MAX;
@@ -179,8 +221,13 @@ bool retro_load_game(const struct retro_game_info *game)
    environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)input_desc);
    environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sysdir);
 
+   if (sysdir && sysdir[0])
+      snprintf(g_logpath, sizeof g_logpath, "%s/tigerbyte.log", sysdir);
+   tb_log("=== load_game: sysdir='%s' ===\n", sysdir ? sysdir : "(null)");
+
    gcsystem_init(&sys);
    if (!load_bios(sysdir)) {
+      tb_log("load_bios FAILED — system ROMs not found\n");
       struct retro_message msg = { "Tigerbyte: missing system ROMs (internal.bin + external.bin) in the system directory", 360 };
       log_cb(RETRO_LOG_ERROR, "Tigerbyte: system ROMs not found in '%s'\n", sysdir ? sysdir : "(null)");
       environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
@@ -191,6 +238,8 @@ bool retro_load_game(const struct retro_game_info *game)
 
    gcsystem_reset(&sys);
    system_ready = 1;
+   tb_log("loaded OK: cart_size=%lu system_ready=%d build=snd-stream+vidlog\n",
+          (unsigned long)(game ? game->size : 0), system_ready);
    return true;
 }
 

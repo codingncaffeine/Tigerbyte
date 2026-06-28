@@ -335,6 +335,29 @@ void sm8521_set_irq(sm8521_t *c, int line, int asserted)
 
 static void trap(sm8521_t *c, uint8_t op, uint16_t at) { c->trapped = 1; c->trap_op = op; c->trap_pc = at; }
 
+/* Per-opcode base cycle counts, ported from MAME's sm85ops.h cycle annotations
+ * (educated-guess timing, but per-instruction — far better than a flat constant).
+ * Addressing-mode-variable opcodes (0x20-0x3B etc.) use their base mode here and
+ * are refined per-mode in the decode below; uncommented opcodes default to 6. */
+static const uint8_t SM_CYCLES[256] = {
+    4, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 7, 6, 9,   /* 0x */
+    5, 5, 5, 5, 5, 5, 5, 5, 8, 8, 6, 7,12,12,12,12,   /* 1x */
+    7, 7, 7, 7, 7, 7, 7, 7, 6, 8, 6, 6, 6, 4, 4, 6,   /* 2x */
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8,11,11, 7, 4, 6, 6,   /* 3x */
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 8, 9,24,24, 6, 6,   /* 4x */
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 6,47,44, 9, 8,   /* 5x */
+    9,10,10,10,10,14,14,14, 9,10,10,10,10,13,13,13,   /* 6x */
+   10, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,   /* 7x */
+   10, 6, 6, 6, 6, 6, 6, 6,10, 6, 6, 6, 6, 6, 6, 6,   /* 8x */
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,   /* 9x */
+    4, 6, 6, 6, 6, 6, 6, 6, 4, 6, 6, 6, 6, 6, 6, 6,   /* Ax */
+    4, 6, 6, 6, 6, 6, 6, 6, 4, 6, 6, 6, 6, 6, 6, 6,   /* Bx */
+    4, 6, 6, 6, 6, 6, 6, 6, 4, 6, 6, 6, 6, 6, 6, 6,   /* Cx */
+    8, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,   /* Dx */
+   12, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,12,   /* Ex */
+    2, 2, 6, 6, 6, 6, 6, 6,10,12, 2, 2, 2, 2, 2, 2,   /* Fx */
+};
+
 int sm8521_step(sm8521_t *c)
 {
    process_interrupts(c);
@@ -349,7 +372,7 @@ int sm8521_step(sm8521_t *c)
 
    uint16_t at = c->pc;
    uint8_t op = fb(c);
-   int cyc = 6;
+   int cyc = SM_CYCLES[op];
    uint8_t m, dst, a1, a2;
    uint16_t ptr, t;
 

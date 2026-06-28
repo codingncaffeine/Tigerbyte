@@ -238,6 +238,14 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
          b->ram[0x52] = val; b->ram[0x53] = 0; return;
       case 0x53:  b->timer[1].reload = val; b->ram[0x53] = 0; return;   /* TM1D */
       }
+      if (addr >= 0x40 && addr <= 0x4F) {                /* sound registers */
+         b->snd_reg_writes++;
+         if (addr == 0x4E) {                             /* capture the DAC stream */
+            b->snd_dac_writes++;
+            if (b->dac_stream_n < (int)sizeof b->dac_stream)
+               b->dac_stream[b->dac_stream_n++] = val;
+         }
+      }
       b->ram[addr] = val;
       if (addr == DMC && (val & 0x80)) gcbus_dma(b);     /* trigger blitter */
       return;
