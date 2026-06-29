@@ -469,6 +469,16 @@ int sm8521_step(sm8521_t *c)
      else if (op == 0x4F) { a1 = fb(c); a2 = fb(c); { uint8_t bit = (uint8_t)(a1 & 7); uint8_t s1 = (uint8_t)(rb(c, a2) & (1 << bit)); uint8_t s2 = (uint8_t)(((c->ps1 & FB) >> 1) << bit); switch (a1 & 0xC0) { case 0x00: c->ps1 &= (uint8_t)~(FZ | FV); if (s1 == s2) c->ps1 |= FZ; break; case 0x40: c->ps1 &= (uint8_t)~(FZ | FV | FB); c->ps1 |= (s1 & s2) ? FB : FZ; break; case 0x80: c->ps1 &= (uint8_t)~(FZ | FV | FB); c->ps1 |= (s1 | s2) ? FB : FZ; break; default: c->ps1 &= (uint8_t)~(FZ | FV | FB); c->ps1 |= (s1 ^ s2) ? FB : FZ; break; } } } /* bcmp/band/bor/bxor */
      else if (op >= 0x50 && op <= 0x57) { a1 = fb(c); a2 = fb(c); alu8(c, op & 7, a2, a1); } /* ALU iR (imm,Raddr) */
      else if (op == 0x58) { a1 = fb(c); a2 = fb(c); wb(c, a2, a1); }          /* mov iR */
+     else if (op == 0x5A || op == 0x5B) {            /* cmp/mov (rr-indirect),#imm  (MAME #7451) */
+        m = fb(c); uint16_t pair = B2W[m & 7], addr = 0; uint8_t imm = 0;
+        switch (m & 0xC0) {
+        case 0x00: addr = rw(c, pair); imm = fb(c); break;                                       /* @rr     */
+        case 0x40: addr = rw(c, pair); ww(c, pair, (uint16_t)(addr + 1)); imm = fb(c); break;     /* (rr)+   */
+        case 0x80: { uint8_t d = fb(c); addr = (uint16_t)(rw(c, pair) + d); imm = fb(c); } break; /* rr+disp */
+        default:   addr = (uint16_t)(rw(c, pair) - 1); ww(c, pair, addr); imm = fb(c); break;     /* -(rr)   */
+        }
+        if (op == 0x5A) sub8(c, rb(c, addr), imm, 0, 0); else wb(c, addr, imm);
+     }
      else if (op == 0x5C) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~(FZ | FV); { uint8_t dv = rb(c, (uint16_t)(a1 + 1)); if (dv) { uint16_t num = rw(c, a2); uint16_t q = (uint16_t)(num / dv); wb(c, a1, (uint8_t)(num % dv)); ww(c, a2, q); if (q == 0) c->ps1 |= FZ; } else c->ps1 |= FV; } } /* div RR */
      else if (op == 0x5D) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~(FZ | FV); if (a1) { uint16_t q = (uint16_t)(rw(c, a2) / a1); ww(c, a2, q); if (q == 0) c->ps1 |= FZ; } else c->ps1 |= FV; } /* div iR */
      else if (op == 0x5E) { a1 = fb(c); m = fb(c); a2 = fb(c); wb(c, a1, (uint8_t)((rb(c, a1) & m) | rb(c, a2))); } /* movm RiR */
