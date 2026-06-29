@@ -18,6 +18,7 @@ static const uint8_t B2W[8] = { 0, 8, 2, 10, 4, 12, 6, 14 };
 /* ---- memory access (low 16 bytes = banked register window) ---- */
 static uint8_t rb(sm8521_t *c, uint16_t a)
 {
+   c->bus_n++;                              /* each byte access = 2 cycles (datasheet p.15) */
    if (a < 0x10) return c->reg[(c->ps0 & 0xF8) + a];
    return c->rd(c->ctx, a);
 }
@@ -28,6 +29,7 @@ static void get_sp(sm8521_t *c)
 }
 static void wb(sm8521_t *c, uint16_t a, uint8_t v)
 {
+   c->bus_n++;                              /* each byte access = 2 cycles (datasheet p.15) */
    if (a < 0x10) c->reg[(c->ps0 & 0xF8) + a] = v;
    c->wr(c->ctx, a, v);
    /* writes to the in-memory CPU registers refresh the cached copies */
@@ -366,6 +368,22 @@ static const uint8_t CYC_RMB_ST[5]   = {  8,  8, 10,  9,  9 };  /* 0x29 MOV stor
 static const uint8_t CYC_RMW[5]      = {  8, 13, 15, 11, 13 };  /* 0x30-0x39 */
 static const uint8_t CYC_RMW_MOVW[5] = { 11, 16, 14, 18, 16 };  /* 0x3A-0x3B MOVW */
 
+/* Control-flow + MULT/DIV carry internal / prefetch-flush cycles that aren't bus
+   accesses, so keep their explicit counts; every other op derives its cycle count
+   from the bus-access total (datasheet p.15: 2 cycles/access, opcode prefetched free). */
+static int use_fixed_cycles(uint8_t op)
+{
+   if (op == 0x2A || op == 0x2B) return 1;                             /* BBC/BBS direct */
+   if (op >= 0x70 && op <= 0x77) return 1;                             /* DBNZ */
+   if (op >= 0x80 && op <= 0x9F) return 1;                             /* BBC/BBS reg, JMP cc */
+   if (op >= 0xD0 && op <= 0xDF) return 1;                             /* BR cc */
+   if (op == 0x3E || op == 0x3F || op == 0x49) return 1;               /* JMP / CALL */
+   if (op >= 0xE0 && op <= 0xEF) return 1;                             /* CALS */
+   if (op == 0xF8 || op == 0xF9) return 1;                             /* RET / IRET */
+   if (op == 0x4C || op == 0x4D || op == 0x5C || op == 0x5D) return 1; /* MULT / DIV */
+   return 0;
+}
+
 int sm8521_step(sm8521_t *c)
 {
    process_interrupts(c);
@@ -380,6 +398,7 @@ int sm8521_step(sm8521_t *c)
 
    uint16_t at = c->pc;
    uint8_t op = fb(c);
+   c->bus_n = 0;              /* opcode fetch is prefetched (free); count only operands + data */
    int cyc = SM_CYCLES[op];
    uint8_t m, dst, a1, a2;
    uint16_t ptr, t;
@@ -486,6 +505,11 @@ int sm8521_step(sm8521_t *c)
       case 0xFF: break;                                         /* nop  */
       default: trap(c, op, at); break;
       }
+
+   if (!use_fixed_cycles(op)) {       /* derive cycles from the bus-access count (datasheet p.15) */
+      cyc = 2 * (c->bus_n - 1);       /* last access overlaps the next opcode prefetch (free) */
+      if (cyc < 2) cyc = 2;
+   }
 
    /* write back the in-memory registers */
    if (c->sys & 0x40) c->wr(c->ctx, 0x1c, (uint8_t)(c->sp >> 8));
