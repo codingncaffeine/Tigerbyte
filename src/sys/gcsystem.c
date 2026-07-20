@@ -44,6 +44,7 @@ void gcsystem_run_frame(gcsystem_t *s)
    while (budget > 0 && !c->trapped) {
       b->cur_cycle = s->cycles_per_frame - budget;   /* cycle position for DAC write timestamps */
       int cyc = sm8521_step(c);
+      if (c->halted) gcbus_dma_run_if_armed(b);      /* armed blits start at the HALT */
       gcbus_tick(b, cyc, c->stopped);
       budget -= cyc;
    }

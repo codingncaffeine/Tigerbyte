@@ -60,6 +60,7 @@ typedef struct {
    uint32_t   ck_accum;                  /* cycle accumulator for the 1 Hz clock-timer (CK) tick */
    uint32_t   dbg_ck;                    /* clock-timer interrupts raised */
    int        dma_cycles_left;           /* blitter busy time remaining (completion IRQ pends) */
+   int        dma_armed;                 /* DMC start written; transfer runs at the next HALT */
    int        uart_cycles_left;          /* pending transmit-done interrupt (nothing attached) */
    int        uart_level_accum;          /* periodic transmit-empty request while port enabled */
    uint32_t   clock_hz;                  /* CPU clock, for the 1 s clock-timer period */
@@ -91,5 +92,10 @@ void gcbus_tick(gcbus_t *b, int cycles, int stopped);
 /* CPU bus callbacks (cast ctx to gcbus_t*). */
 uint8_t gcbus_read(void *ctx, uint16_t addr);
 void    gcbus_write(void *ctx, uint16_t addr, uint8_t val);
+
+/* Run an armed blit (datasheet: the transfer starts when the CPU executes
+ * HALT after setting the DMC start bit — registers may be rewritten between
+ * the two, so the snapshot happens here, not at the DMC write). */
+void gcbus_dma_run_if_armed(gcbus_t *b);
 
 #endif /* TIGERBYTE_GCBUS_H */

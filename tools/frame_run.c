@@ -88,7 +88,8 @@ int main(int argc, char **argv)
    /* a proper tap: press for ~8 frames, then release (a touch UI acts on release).
       TB_AT overrides the hold window's start frame (default: 1/3 of the run).
       TB_PRESS="f1,f2,..." holds button A for 8 frames at each listed frame. */
-   int t0 = getenv("TB_AT") ? atoi(getenv("TB_AT")) : frames / 3, t1 = t0 + 8;
+   int t0 = getenv("TB_AT") ? atoi(getenv("TB_AT")) : frames / 3;
+   int t1 = t0 + (getenv("TB_LEN") ? atoi(getenv("TB_LEN")) : 8);
    const char *press = getenv("TB_PRESS");
    int audio_peak = 0;
    uint32_t p_irq = 0, p_ovf = 0, p_dac = 0;

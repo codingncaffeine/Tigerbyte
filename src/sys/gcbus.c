@@ -182,7 +182,8 @@ static void gcbus_dma(gcbus_t *b)
       static int lmode = -1, lbr = -1, lsy = -1, lw = -1;
       if (dmalog < 0) dmalog = getenv("TB_DMALOG") != NULL;
       if (dmalog && dmalogged < 220 &&
-          ((mode == 0x02 && ram[DMBR] >= 16) || mode == 0x04 || mode == 0x06)) {
+          (mode == 0x00 ||
+           (mode == 0x02 && ram[DMBR] >= 16) || mode == 0x04 || mode == 0x06)) {
          if (mode != lmode || ram[DMBR] != lbr || (int)bw != lw ||
              (sy > lsy + 8) || (sy < lsy - 8)) {
             lmode = mode; lbr = ram[DMBR]; lsy = sy; lw = bw;
@@ -234,6 +235,13 @@ static void gcbus_dma(gcbus_t *b)
    } else {
       ram[DMC] = (uint8_t)(dmc & 0x7F);  /* bare-CPU tools (no IRQ sink): instant */
    }
+}
+
+void gcbus_dma_run_if_armed(gcbus_t *b)
+{
+   if (!b->dma_armed) return;
+   b->dma_armed = 0;
+   gcbus_dma(b);
 }
 
 /* TM*C prescaler-select -> divisor of the FIXED 4.9152 MHz timer input clock.
@@ -399,7 +407,15 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
          }
       }
       b->ram[addr] = val;
-      if (addr == DMC && (val & 0x80)) gcbus_dma(b);     /* trigger blitter */
+      if (addr == DMC && (val & 0x80)) {
+         /* Datasheet: "set the DMA start bit to '1' and execute HALT
+            instruction, then DMA transfer starts." Games legitimately keep
+            writing blit registers between the two; snapshotting here executed
+            those blits with stale parameters. Arm now, run at the HALT.
+            (Bare-CPU tools with no IRQ sink keep the immediate behavior.) */
+         if (b->irq) b->dma_armed = 1;
+         else gcbus_dma(b);
+      }
       return;
    }
    if (addr < 0xA000) return;                            /* ROM windows: ignore */
