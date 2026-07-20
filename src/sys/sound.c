@@ -34,6 +34,13 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
       (heard as a "dip"). If the game wrote DAC samples this frame it was actively
       streaming, so honor them. */
    int   use_dac = (dac_n > 0) ? 1 : ((sgc & 0x8F) == 0x88);
+   /* While a sample STREAM is flowing, the direct-out owns the speaker and the
+      generators don't reach it: games play digitized voice over music by just
+      streaming SGDA without cleaning up the wavetable registers (observed: both
+      channels parked at max level on one period during a voice line — mixing
+      them buries the voice under a loud constant tone). A few stray writes per
+      frame (idle-level refreshes between notes) must NOT mute the music. */
+   int   dac_owns_out = dac_n >= 4;
 
    /* SG2 noise channel — Furnace's reconstruction (32-bit LFSR, taps 0/5/8/13,
       output toggles on bit-0 edges). Unimplemented in MAME and elsewhere; this is
@@ -72,12 +79,12 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
       int mix  = dac * 64;                                   /* 8-bit DAC, scaled for level */
 
       if (f0 > 0.0f) {
-         mix += wave_step(&ram[0x60], s->idx[0]) * l0 * 16;
+         if (!dac_owns_out) mix += wave_step(&ram[0x60], s->idx[0]) * l0 * 16;
          s->phase[0] += f0;
          while (s->phase[0] >= 1.0f) { s->phase[0] -= 1.0f; s->idx[0] = (s->idx[0] + 1) & 31; }
       }
       if (f1 > 0.0f) {
-         mix += wave_step(&ram[0x70], s->idx[1]) * l1 * 16;
+         if (!dac_owns_out) mix += wave_step(&ram[0x70], s->idx[1]) * l1 * 16;
          s->phase[1] += f1;
          while (s->phase[1] >= 1.0f) { s->phase[1] -= 1.0f; s->idx[1] = (s->idx[1] + 1) & 31; }
       }
@@ -90,7 +97,7 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
                       (((s->lfsr ^ (s->lfsr >> 5) ^ (s->lfsr >> 8) ^ (s->lfsr >> 13)) & 1u) << 31);
             if (oldbit ^ (int)(s->lfsr & 1u)) s->noise_out ^= 1;
          }
-         mix += ((s->noise_out ? 7 : -8) * l2) * 16;
+         if (!dac_owns_out) mix += ((s->noise_out ? 7 : -8) * l2) * 16;
       }
 
       if (mix > 32767)  mix = 32767;
