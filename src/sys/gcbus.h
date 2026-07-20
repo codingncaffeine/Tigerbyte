@@ -22,7 +22,7 @@
 #define GC_VRAM_SIZE  0x4000      /* 16 KB VRAM                        */
 
 /* Interrupt line numbers (match the SM8521 vector order in sm8521.h). */
-enum { GC_IRQ_DMA = 1, GC_IRQ_TIM0 = 2, GC_IRQ_LCDC = 5, GC_IRQ_TIM1 = 6, GC_IRQ_CK = 7 };
+enum { GC_IRQ_DMA = 1, GC_IRQ_TIM0 = 2, GC_IRQ_UART = 4, GC_IRQ_LCDC = 5, GC_IRQ_TIM1 = 6, GC_IRQ_CK = 7 };
 
 typedef void (*gc_irq_fn)(void *user, int line);
 
@@ -55,6 +55,7 @@ typedef struct {
    uint32_t   ck_accum;                  /* cycle accumulator for the 1 Hz clock-timer (CK) tick */
    uint32_t   dbg_ck;                    /* clock-timer interrupts raised */
    int        dma_cycles_left;           /* blitter busy time remaining (completion IRQ pends) */
+   int        uart_cycles_left;          /* pending transmit-done interrupt (nothing attached) */
 } gcbus_t;
 
 void gcbus_init(gcbus_t *b);

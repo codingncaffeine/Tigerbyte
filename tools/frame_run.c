@@ -10,6 +10,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 
 #include "sys/gcsystem.h"
@@ -30,11 +31,24 @@ int main(int argc, char **argv)
 
    int frames = atoi(argv[3]);
    /* input injection for experiments: TB_IN0=hex button held; TB_TAP="col,row"
-      touch held; both applied after 1/3 of the run. */
-   const char *be = getenv("TB_IN0"), *te = getenv("TB_TAP");
+      touch held; both applied after 1/3 of the run. TB_TAPS="c,r@f;c,r@f;..."
+      scripts multiple taps (each held 8 frames from its @frame). */
+   const char *be = getenv("TB_IN0"), *te = getenv("TB_TAP"), *ts = getenv("TB_TAPS");
    uint8_t hold = be ? (uint8_t)strtoul(be, NULL, 16) : 0xFF;
    int tcol = -1, trow = 0;
    if (te) sscanf(te, "%d,%d", &tcol, &trow);
+   int scol[16], srow[16], sfr[16], ntap = 0;
+   if (ts) {
+      const char *p = ts;
+      while (ntap < 16) {
+         int c2, r2, f2;
+         if (sscanf(p, "%d,%d@%d", &c2, &r2, &f2) != 3) break;
+         scol[ntap] = c2; srow[ntap] = r2; sfr[ntap] = f2; ntap++;
+         p = strchr(p, ';');
+         if (!p) break;
+         p++;
+      }
+   }
    /* a proper tap: press for ~8 frames, then release (a touch UI acts on release) */
    int t0 = frames / 3, t1 = t0 + 8;
    int audio_peak = 0;
@@ -44,6 +58,9 @@ int main(int argc, char **argv)
       gcbus_set_buttons(&sys.bus, act ? hold : 0xFF, 0xFF, 0xFF);
       for (int c = 0; c < 13; c++) gcbus_set_touch(&sys.bus, c, 0);
       if (act && tcol >= 0) gcbus_set_touch(&sys.bus, tcol, (uint16_t)(1 << trow));
+      for (int k = 0; k < ntap; k++)
+         if (f >= sfr[k] && f < sfr[k] + 8)
+            gcbus_set_touch(&sys.bus, scol[k], (uint16_t)(1 << srow[k]));
       gcsystem_run_frame(&sys);
       for (int k = 0; k < sys.audio_samples; k++) {
          int v = sys.audio[k * 2]; if (v < 0) v = -v; if (v > audio_peak) audio_peak = v;

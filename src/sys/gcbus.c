@@ -80,9 +80,22 @@ int gcbus_load_external(gcbus_t *b, const char *path)
 void gcbus_load_cart_mem(gcbus_t *b, const uint8_t *data, size_t size)
 {
    if (!data || size == 0) return;
-   /* mirror-fill the 2 MB cartridge window with the image */
-   for (size_t off = 0; off < GC_CART_SIZE; off += size)
-      memcpy(b->cart + off, data, (off + size <= GC_CART_SIZE) ? size : (GC_CART_SIZE - off));
+   memset(b->cart, 0, GC_CART_SIZE);
+   if (size == 0x1C0000) {
+      /* 1.75 MB mask ROMs sit at the TOP of the 2 MB space: the first 256 KB of
+         page numbers don't exist on the chip. Loading them at 0 skewed every
+         bank the kernel touches and the launcher bounced back to the menu. */
+      memcpy(b->cart + 0x40000, data, size);
+   } else if (size <= GC_CART_SIZE && (size & (size - 1)) == 0) {
+      /* power-of-two image: mirror by doubling up to the full window */
+      memcpy(b->cart, data, size);
+      for (size_t sz = size; sz < GC_CART_SIZE; sz <<= 1)
+         memcpy(b->cart + sz, b->cart, sz);
+   } else {
+      /* odd homebrew size: permissive sequential fill */
+      for (size_t off = 0; off < GC_CART_SIZE; off += size)
+         memcpy(b->cart + off, data, (off + size <= GC_CART_SIZE) ? size : (GC_CART_SIZE - off));
+   }
    b->cart_loaded = 1;
 }
 
@@ -234,6 +247,14 @@ void gcbus_tick(gcbus_t *b, int cycles, int stopped)
       }
    }
 
+   if (b->uart_cycles_left > 0) {
+      b->uart_cycles_left -= cycles;
+      if (b->uart_cycles_left <= 0) {
+         b->uart_cycles_left = 0;
+         if (b->irq) b->irq(b->irq_user, GC_IRQ_UART);
+      }
+   }
+
    for (int t = 0; t < 2; t++) {
       gc_timer_t *tm = &b->timer[t];
       if (!tm->enabled || tm->prescale_max <= 0) continue;
@@ -281,6 +302,16 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
          b->timer[1].prescale_count = 0;
          b->ram[0x52] = val; b->ram[0x53] = 0; return;
       case 0x53:  b->timer[1].reload = val; b->ram[0x53] = 0; return;   /* TM1D */
+      }
+      if (addr == 0x2B) {
+         /* URTT write: nothing is attached to the link port, but the shifter
+            still empties — complete the transmit with a UART interrupt so
+            link-cable probes (fighting games, Web Link) run to completion.
+            ~10 bits at 9600-ish baud ≈ 5000 cycles; exact rate isn't critical. */
+         b->ram[addr] = val;
+         b->uart_cycles_left = 5000;
+         b->ram[0x2D] |= 0x02;                           /* URTS: TDRE (transmit empty) */
+         return;
       }
       if (addr >= 0x40 && addr <= 0x4F) {                /* sound registers */
          b->snd_reg_writes++;
