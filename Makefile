@@ -23,6 +23,10 @@ OBJECTS := $(SOURCES:.c=.o)
 # Every object depends on every header: struct layouts (gcbus_t/gcsystem_t)
 # cross TU boundaries, and an incremental build mixing pre- and post-layout
 # objects links fine but corrupts state at runtime.
+# NOTE: this prerequisite-only rule MUST NOT be the first rule in the file —
+# the first rule is the default goal, and having it here once turned plain
+# `make` into "check one .o and stop" (three deploys shipped a stale DLL).
+.DEFAULT_GOAL := all
 HDRS := $(wildcard src/*.h src/cpu/*.h src/sys/*.h)
 $(OBJECTS): $(HDRS)
 
