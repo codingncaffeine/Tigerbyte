@@ -75,7 +75,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "Tigerbyte";
-   info->library_version  = "0.3.13";
+   info->library_version  = "0.3.14";
    info->valid_extensions = "tgc|bin";
    info->need_fullpath    = false;     /* deliver the cart image in game->data */
    info->block_extract    = false;
@@ -274,7 +274,7 @@ bool retro_load_game(const struct retro_game_info *game)
 
    gcsystem_reset(&sys);
    system_ready = 1;
-   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.13 clock=%d\n",
+   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.14 clock=%d\n",
           (unsigned long)(game ? game->size : 0), system_ready, sys.clock_hz);
    return true;
 }
@@ -293,5 +293,17 @@ bool retro_unserialize(const void *d, size_t s) { (void)d; (void)s; return false
 
 void   retro_cheat_reset(void) { }
 void   retro_cheat_set(unsigned i, bool e, const char *c) { (void)i; (void)e; (void)c; }
-void  *retro_get_memory_data(unsigned id) { (void)id; return NULL; }
-size_t retro_get_memory_size(unsigned id) { (void)id; return 0; }
+/* The console's external SRAM (0xE000-0xFFFF) is battery-backed: high-score
+   tables, player names, and the OS apps' data (phone book, calendar) live
+   there and persist across power cycles. Exposing it as save RAM lets the
+   frontend do the battery's job — without it, games re-run their first-boot
+   name-entry flows on every launch. */
+void *retro_get_memory_data(unsigned id)
+{
+   if (id == RETRO_MEMORY_SAVE_RAM && system_ready) return &sys.bus.ram[0xE000];
+   return NULL;
+}
+size_t retro_get_memory_size(unsigned id)
+{
+   return (id == RETRO_MEMORY_SAVE_RAM) ? 0x2000 : 0;
+}
