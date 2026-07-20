@@ -293,6 +293,21 @@ void gcbus_tick(gcbus_t *b, int cycles, int stopped)
       }
    }
 
+   /* Transmit-empty is a LEVEL condition on a real UART: while the port is
+      enabled (URTC TE/RE) it keeps requesting, so link-cable probes burn
+      through their retries at wire speed. A one-shot here left the probe
+      advancing once per clock-timer second — a boot that should take moments
+      crawled for half a minute. ~2200 Hz ≈ one interrupt per byte time. */
+   if (b->ram[0x2C] & 0x18) {
+      b->uart_level_accum += cycles;
+      if (b->uart_level_accum >= 2234) {
+         b->uart_level_accum = 0;
+         b->ram[0x2D] |= 0x02;                            /* URTS: TDRE */
+         if (b->irq) b->irq(b->irq_user, GC_IRQ_UART);
+      }
+   } else
+      b->uart_level_accum = 0;
+
    for (int t = 0; t < 2; t++) {
       gc_timer_t *tm = &b->timer[t];
       if (!tm->enabled || tm->prescale_max <= 0) continue;
