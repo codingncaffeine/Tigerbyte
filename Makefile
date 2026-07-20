@@ -73,7 +73,7 @@ $(REND): tools/render_test.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c
 
 FRAME := frame_run$(EXE)
 framerun: $(FRAME)
-$(FRAME): tools/frame_run.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c src/sys/sound.c src/sys/gcsystem.c
+$(FRAME): tools/frame_run.c src/cpu/sm8521.c src/cpu/sm8521_disasm.c src/sys/gcbus.c src/sys/ppu.c src/sys/sound.c src/sys/gcsystem.c
 	$(CC) $(TOOLCFLAGS) -o $@ $^
 
 HOST := libretro_host$(EXE)

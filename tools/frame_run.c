@@ -15,6 +15,39 @@
 
 #include "sys/gcsystem.h"
 #include "sys/ppu.h"
+#include "cpu/sm8521_disasm.h"
+
+static uint8_t trc_rd(void *ctx, uint16_t a) { return gcbus_read(ctx, a); }
+
+/* single-step until the PC lands in a cart-mapped window, then trace N instructions */
+static void trace_cart(gcsystem_t *s, int n)
+{
+   long guard = 3000000;
+   while (guard-- > 0) {
+      uint16_t pc = s->cpu.pc;
+      int win = (pc >= 0x2000 && pc < 0xA000) ? (pc - 0x2000) >> 13 : -1;
+      int in_cart = win >= 0 && s->bus.ram[0x25 + win] >= 0x20;
+      if (in_cart) break;
+      gcbus_tick(&s->bus, sm8521_step(&s->cpu), s->cpu.stopped);
+   }
+   fprintf(stderr, "[cart-trace] entered cart code at PC=%04X (MMU=%02X.%02X.%02X.%02X)\n",
+           s->cpu.pc, s->bus.ram[0x25], s->bus.ram[0x26], s->bus.ram[0x27], s->bus.ram[0x28]);
+   for (int i = 0; i < n; i++) {
+      char dis[64];
+      uint16_t pc = s->cpu.pc;
+      sm8521_disasm(dis, sizeof dis, pc, trc_rd, &s->bus);
+      int cyc = sm8521_step(&s->cpu);
+      gcbus_tick(&s->bus, cyc, s->cpu.stopped);
+      fprintf(stderr, "[cart-trace] %04X %-26s", pc, dis);
+      if ((i % 4) == 3) {
+         uint8_t b = (uint8_t)(s->cpu.ps0 & 0xF8);
+         fprintf(stderr, " | r0-7: %02X %02X %02X %02X %02X %02X %02X %02X PS1=%02X",
+                 s->cpu.reg[b + 0], s->cpu.reg[b + 1], s->cpu.reg[b + 2], s->cpu.reg[b + 3],
+                 s->cpu.reg[b + 4], s->cpu.reg[b + 5], s->cpu.reg[b + 6], s->cpu.reg[b + 7], s->cpu.ps1);
+      }
+      fprintf(stderr, "\n");
+   }
+}
 
 static gcsystem_t sys;
 static uint8_t shades[GC_W * GC_H];
@@ -62,6 +95,8 @@ int main(int argc, char **argv)
          if (f >= sfr[k] && f < sfr[k] + 8)
             gcbus_set_touch(&sys.bus, scol[k], (uint16_t)(1 << srow[k]));
       gcsystem_run_frame(&sys);
+      if (getenv("TB_CARTTRACE") && f == 1000)
+         trace_cart(&sys, 150);
       for (int k = 0; k < sys.audio_samples; k++) {
          int v = sys.audio[k * 2]; if (v < 0) v = -v; if (v > audio_peak) audio_peak = v;
       }
