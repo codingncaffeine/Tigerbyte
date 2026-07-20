@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Tigerbyte - Game.com sound generation. See sound.h. */
+#include <string.h>
 #include "sound.h"
 
 /* one 4-bit step of a wavetable channel (32 nibbles packed in 16 bytes) */
@@ -12,6 +13,8 @@ static int wave_step(const uint8_t *tbl, int idx)
 
 void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
                        const uint8_t *dac_stream, const uint32_t *dac_cycle, int dac_n,
+                       const uint8_t *wave_addr, const uint8_t *wave_val,
+                       const uint32_t *wave_cycle, int wave_n,
                        int cyc_per_frame, int16_t *out, int n, int rate)
 {
    uint8_t sgc = ram[0x40];
@@ -38,10 +41,21 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
       generators don't reach it: games play digitized voice over music by just
       streaming SGDA without cleaning up the wavetable registers (observed: both
       channels parked at max level on one period during a voice line — mixing
-      them buries the voice under a loud constant tone). Music frames carry at
-      most ~0.1 stray idle-level writes per frame, while even the quietest voice
-      lines measure ~2.8/frame — threshold 2 splits them with wide margin. */
-   int   dac_owns_out = dac_n >= 2;
+      them buries the voice under a loud constant tone). True DAC voice streams
+      measure 40+ writes/frame; wavetable-voice moments trickle parked-level DAC
+      writes at up to ~7/frame and their voice lives in the WAVETABLE — muting
+      it there silences the voice itself. Threshold 30 splits the populations. */
+   int   dac_owns_out = dac_n >= 30;
+
+   /* Wavetable shadow: voice streams refill the 32-nibble waveform mid-frame
+      (~4 refills per frame at ~229 Hz) — rendering from the end-of-frame RAM
+      alone replays only the last refill and turns speech into a buzz. Apply
+      the timestamped refill writes as the output cursor sweeps the frame. */
+   if (wave_n == 0) {
+      memcpy(s->wave[0], &ram[0x60], 16);
+      memcpy(s->wave[1], &ram[0x70], 16);
+   }
+   int ww = 0;
 
    /* SG2 noise channel — Furnace's reconstruction (32-bit LFSR, taps 0/5/8/13,
       output toggles on bit-0 edges). Unimplemented in MAME and elsewhere; this is
@@ -61,11 +75,19 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
    int dac_prev_c = 0;
 
    for (int i = 0; i < n; i++) {
+      long tc = (long)i * cyc_per_frame / n;
+
+      /* apply wavetable refills that happened up to this instant */
+      while (ww < wave_n && (long)wave_cycle[ww] <= tc) {
+         int a = wave_addr[ww];
+         s->wave[(a >> 4) & 1][a & 0xF] = wave_val[ww];
+         ww++;
+      }
+
       /* Resample the DAC at this output sample's true cycle position, interpolating
          between the surrounding writes (the game varies the inter-sample spacing). */
       int dval;
       if (dac_n > 0) {
-         long tc = (long)i * cyc_per_frame / n;
          while (dw < dac_n && (long)dac_cycle[dw] <= tc) {
             dac_prev_v = dac_stream[dw]; dac_prev_c = (int)dac_cycle[dw]; dw++;
          }
@@ -80,12 +102,12 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
       int mix  = dac * 64;                                   /* 8-bit DAC, scaled for level */
 
       if (f0 > 0.0f) {
-         if (!dac_owns_out) mix += wave_step(&ram[0x60], s->idx[0]) * l0 * 16;
+         if (!dac_owns_out) mix += wave_step(s->wave[0], s->idx[0]) * l0 * 16;
          s->phase[0] += f0;
          while (s->phase[0] >= 1.0f) { s->phase[0] -= 1.0f; s->idx[0] = (s->idx[0] + 1) & 31; }
       }
       if (f1 > 0.0f) {
-         if (!dac_owns_out) mix += wave_step(&ram[0x70], s->idx[1]) * l1 * 16;
+         if (!dac_owns_out) mix += wave_step(s->wave[1], s->idx[1]) * l1 * 16;
          s->phase[1] += f1;
          while (s->phase[1] >= 1.0f) { s->phase[1] -= 1.0f; s->idx[1] = (s->idx[1] + 1) & 31; }
       }

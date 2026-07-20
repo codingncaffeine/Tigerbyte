@@ -351,7 +351,17 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
          b->ram[0x2D] |= 0x02;                           /* URTS: TDRE (transmit empty) */
          return;
       }
-      if (addr >= 0x60 && addr <= 0x7F) b->snd_wave_writes++;   /* wavetable RAM */
+      if (addr >= 0x60 && addr <= 0x7F) {                /* wavetable RAM — timestamped: voice
+                                                            streams refill it mid-frame and the
+                                                            mixer must apply refills in time order */
+         b->snd_wave_writes++;
+         if (b->wave_stream_n < (int)(sizeof b->wave_addr)) {
+            b->wave_addr[b->wave_stream_n]  = (uint8_t)(addr - 0x60);
+            b->wave_val[b->wave_stream_n]   = val;
+            b->wave_cycle[b->wave_stream_n] = (uint32_t)b->cur_cycle;
+            b->wave_stream_n++;
+         }
+      }
       if (addr >= 0x40 && addr <= 0x4F) {                /* sound registers */
          b->snd_reg_writes++;
          if (addr == 0x4E) {                             /* capture the DAC stream + write timing */

@@ -75,7 +75,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "Tigerbyte";
-   info->library_version  = "0.3.4";
+   info->library_version  = "0.3.5";
    info->valid_extensions = "tgc|bin";
    info->need_fullpath    = false;     /* deliver the cart image in game->data */
    info->block_extract    = false;
@@ -190,14 +190,16 @@ void retro_run(void)
       /* --- sound debug: a once-per-second summary through the frontend log --- */
       {
          static unsigned dbg_frames = 0;
-         static uint32_t last_reg = 0, last_dac = 0;
+         static uint32_t last_reg = 0, last_dac = 0, last_wave = 0;
          if (++dbg_frames >= 60) {
             const uint8_t *r = sys.bus.ram;
             uint32_t reg = sys.bus.snd_reg_writes - last_reg;
             uint32_t dac = sys.bus.snd_dac_writes - last_dac;
+            uint32_t wav = sys.bus.snd_wave_writes - last_wave;
             int peak = 0, i;
             last_reg = sys.bus.snd_reg_writes;
             last_dac = sys.bus.snd_dac_writes;
+            last_wave = sys.bus.snd_wave_writes;
             for (i = 0; i < sys.audio_samples; i++) {
                int v = sys.audio[i * 2]; if (v < 0) v = -v; if (v > peak) peak = v;
             }
@@ -205,7 +207,7 @@ void retro_run(void)
                r[0x40], ((r[0x46] << 8) | r[0x47]) & 0xFFF, ((r[0x48] << 8) | r[0x49]) & 0xFFF,
                r[0x42] & 0x1F, r[0x44] & 0x1F, r[0x4E],
                r[0x52], sys.bus.timer[1].reload,
-               reg, dac, sys.bus.snd_wave_writes, peak);
+               reg, dac, wav, peak);
             {  /* display state — catches a black screen (display off / empty page) */
                const uint8_t *v = r + 0xA000;
                uint8_t lcdc = r[0x30];
@@ -271,7 +273,7 @@ bool retro_load_game(const struct retro_game_info *game)
 
    gcsystem_reset(&sys);
    system_ready = 1;
-   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.4 clock=%d\n",
+   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.5 clock=%d\n",
           (unsigned long)(game ? game->size : 0), system_ready, sys.clock_hz);
    return true;
 }

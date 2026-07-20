@@ -36,8 +36,9 @@ void gcsystem_run_frame(gcsystem_t *s)
    gcbus_t  *b = &s->bus;
 
    b->ram[0x32] &= (uint8_t)~0x80;          /* LCV: active display (not vblank) */
-   b->dac_stream_n = 0;                     /* start a fresh frame of DAC capture */
-   b->cur_cycle    = 0;
+   b->dac_stream_n  = 0;                    /* start a fresh frame of DAC capture */
+   b->wave_stream_n = 0;
+   b->cur_cycle     = 0;
 
    int budget = s->cycles_per_frame;
    while (budget > 0 && !c->trapped) {
@@ -56,6 +57,7 @@ void gcsystem_run_frame(gcsystem_t *s)
       resampled from every value the game streamed during the frame, by timestamp */
    s->audio_samples = (int)(44100.0 / 59.732155);          /* ~738 */
    gc_sound_generate(&s->snd, b->ram, b->dac_stream, b->dac_cycle, b->dac_stream_n,
+                     b->wave_addr, b->wave_val, b->wave_cycle, b->wave_stream_n,
                      s->cycles_per_frame,
                      s->audio, s->audio_samples, 44100);
 }

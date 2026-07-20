@@ -52,6 +52,10 @@ typedef struct {
    uint8_t    dac_stream[2048];          /* DAC (0x4E) values captured in write order this frame */
    uint32_t   dac_cycle[2048];           /* cycle-within-frame each DAC write happened at (~0..82287) */
    int        dac_stream_n;              /* count captured this frame (reset each frame) */
+   uint8_t    wave_addr[4096];           /* wavetable RAM writes this frame: offset 0-31 from 0x60 */
+   uint8_t    wave_val[4096];            /* ...the byte written                                     */
+   uint32_t   wave_cycle[4096];          /* ...cycle position (voice streams refill wave RAM live)  */
+   int        wave_stream_n;
    int        cur_cycle;                 /* running cycle position within the frame (set by gcsystem) */
    uint32_t   ck_accum;                  /* cycle accumulator for the 1 Hz clock-timer (CK) tick */
    uint32_t   dbg_ck;                    /* clock-timer interrupts raised */
