@@ -75,7 +75,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "Tigerbyte";
-   info->library_version  = "0.3.0";
+   info->library_version  = "0.3.1";
    info->valid_extensions = "tgc|bin";
    info->need_fullpath    = false;     /* deliver the cart image in game->data */
    info->block_extract    = false;
@@ -97,6 +97,29 @@ void retro_set_environment(retro_environment_t cb)
    bool no_rom = true;
    environ_cb = cb;
    cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_rom);  /* may boot to the shell */
+
+   /* The SDK's delay loops prove 4.9152 MHz for CPU-visible timing, but real
+      boot recordings pace the whole machine 4/3 faster than the model at that
+      clock — either the console really runs the part past its rating or the
+      unanchored opcode costs are collectively ~25% high. "Calibrated" matches
+      the recordings; the alternatives are kept for measurement work. */
+   static const struct retro_variable vars[] = {
+      { "tigerbyte_clock",
+        "System clock; calibrated 6.55 MHz|original 4.92 MHz|mame 5.53 MHz" },
+      { NULL, NULL }
+   };
+   cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void *)vars);
+}
+
+static void apply_clock_option(void)
+{
+   struct retro_variable var = { "tigerbyte_clock", NULL };
+   int hz = 6553600;
+   if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
+      if      (var.value[0] == 'o') hz = 4915200;
+      else if (var.value[0] == 'm') hz = 5529600;
+   }
+   gcsystem_set_clock(&sys, hz);
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb)           { video_cb = cb; }
@@ -145,6 +168,9 @@ void retro_run(void)
    input_poll_cb();
 
    if (system_ready) {
+      bool updated = false;
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+         apply_clock_option();
       poll_input();
       gcsystem_run_frame(&sys);
       gc_render(&sys.bus, framebuffer);
@@ -226,6 +252,7 @@ bool retro_load_game(const struct retro_game_info *game)
    tb_log("=== load_game: sysdir='%s' ===\n", sysdir ? sysdir : "(null)");
 
    gcsystem_init(&sys);
+   apply_clock_option();
    if (!load_bios(sysdir)) {
       tb_log("load_bios FAILED — system ROMs not found\n");
       struct retro_message msg = { "Tigerbyte: missing system ROMs (internal.bin + external.bin) in the system directory", 360 };

@@ -56,6 +56,7 @@ typedef struct {
    uint32_t   dbg_ck;                    /* clock-timer interrupts raised */
    int        dma_cycles_left;           /* blitter busy time remaining (completion IRQ pends) */
    int        uart_cycles_left;          /* pending transmit-done interrupt (nothing attached) */
+   uint32_t   clock_hz;                  /* system clock, for the 1 s clock-timer period */
 } gcbus_t;
 
 void gcbus_init(gcbus_t *b);

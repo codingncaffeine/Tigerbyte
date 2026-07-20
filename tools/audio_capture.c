@@ -9,6 +9,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "../src/sys/gcsystem.h"
+#include "../src/cpu/sm8521_disasm.h"
+
+static uint8_t isr_rd(void *ctx, uint16_t a) { return gcbus_read(ctx, a); }
 
 static gcsystem_t sys;
 
@@ -23,6 +26,10 @@ int main(int argc, char **argv)
    const int rate = 44100;
 
    gcsystem_init(&sys);
+   if (getenv("TB_CLOCK")) {
+      gcsystem_set_clock(&sys, atoi(getenv("TB_CLOCK")));
+      fprintf(stderr, "[clock] fCK=%d Hz (%d cyc/frame)\n", sys.clock_hz, sys.cycles_per_frame);
+   }
    if (gcsystem_load_internal(&sys, ipath) != 0) { fprintf(stderr, "load internal.bin failed\n"); return 1; }
    if (gcsystem_load_external(&sys, epath) != 0) { fprintf(stderr, "load external.bin failed\n"); return 1; }
    gcsystem_reset(&sys);
@@ -44,6 +51,39 @@ int main(int argc, char **argv)
          w16(f, (uint16_t)sys.audio[i * 2]);
          w16(f, (uint16_t)sys.audio[i * 2 + 1]);
          nsamp++;
+      }
+      if (fr == 181 && getenv("TB_ISRDUMP")) {
+         /* single-step until the TIM1 vector is taken, then trace the ISR with
+            per-instruction cycle costs until IRET — the DAC pitch is set by
+            this path's total, so its instruction mix is the calibration data */
+         uint16_t handler = (uint16_t)((gcbus_read(&sys.bus, 0x1012) << 8) | gcbus_read(&sys.bus, 0x1013));
+         fprintf(stderr, "[isr] TIM1 handler=%04X\n", handler);
+         int guard = 2000000, tracing = 0, steps = 0, total = 0, passes = 0;
+         while (guard-- > 0 && passes < 3) {
+            uint16_t pc = sys.cpu.pc;
+            uint32_t irq_before = sys.cpu.irq_taken;
+            int tim1_pending = (sys.cpu.iflags >> 6) & 1;   /* SM_TIM1, before the step */
+            char dis[64];
+            uint8_t op = gcbus_read(&sys.bus, pc);
+            if (tracing) sm8521_disasm(dis, sizeof dis, pc, isr_rd, &sys.bus);
+            int cyc = sm8521_step(&sys.cpu);
+            gcbus_tick(&sys.bus, cyc, sys.cpu.stopped);
+            if (!tracing && tim1_pending && sys.cpu.irq_taken != irq_before) {
+               /* this step vectored and ran the ISR's first instruction */
+               tracing = 1; steps = 1; total = cyc;
+               fprintf(stderr, "[isr] --- pass %d entry (vector+first instr = %d cyc) ---\n", passes + 1, cyc);
+               continue;
+            }
+            if (tracing) {
+               total += cyc; steps++;
+               if (steps < 46)
+                  fprintf(stderr, "[isr] %04X %-24s %2d  (sum %d)\n", pc, dis, cyc, total);
+               if (op == 0xF9) {
+                  fprintf(stderr, "[isr] --- iret: %d instr, %d cycles ---\n", steps, total);
+                  tracing = 0; passes++;
+               }
+            }
+         }
       }
       if (fr == 180 && sys.bus.dac_stream_n > 25) {   /* one mid-jingle frame: ISR cadence */
          fprintf(stderr, "[cadence] n=%d deltas:", sys.bus.dac_stream_n);

@@ -8,6 +8,7 @@ void gcbus_init(gcbus_t *b)
 {
    memset(b, 0, sizeof *b);
    b->in0 = b->in1 = b->in2 = 0xFF;     /* no buttons pressed (active-low) */
+   b->clock_hz = 4915200u;
 }
 
 void gcbus_set_buttons(gcbus_t *b, uint8_t in0, uint8_t in1, uint8_t in2)
@@ -226,7 +227,7 @@ void gcbus_tick(gcbus_t *b, int cycles, int stopped)
       and is what wakes the kernel's boot STOP. (Was: a fake CK fired every idle
       step, which storm-fed the CK ISR and distorted idle timing.) */
    if (b->ram[0x1a] & 0x80) {
-      uint32_t period = (b->ram[0x1a] & 0x40) ? 4915200u * 60u : 4915200u;
+      uint32_t period = (b->ram[0x1a] & 0x40) ? b->clock_hz * 60u : b->clock_hz;
       b->ck_accum += (uint32_t)cycles;
       if (b->ck_accum >= period) {
          b->ck_accum -= period;

@@ -19,9 +19,13 @@ typedef struct {
    gc_sound_t snd;
    int16_t    audio[2048 * 2];   /* one frame of interleaved-stereo output */
    int        audio_samples;
+   int        clock_hz;          /* system clock fCK (default 4,915,200) */
+   int        cycles_per_frame;  /* clock_hz / 59.732155 */
 } gcsystem_t;
 
 void gcsystem_init(gcsystem_t *s);
+/* Override the system clock (calibration/experiments; call after init). */
+void gcsystem_set_clock(gcsystem_t *s, int hz);
 void gcsystem_reset(gcsystem_t *s);
 int  gcsystem_load_internal(gcsystem_t *s, const char *path);
 int  gcsystem_load_external(gcsystem_t *s, const char *path);

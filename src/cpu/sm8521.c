@@ -302,10 +302,11 @@ static void take_interrupt(sm8521_t *c, uint16_t vector)
    if (c->sys & 0x40) c->wr(c->ctx, 0x1c, (uint8_t)(c->sp >> 8));
    c->pc = rw(c, vector);
    c->irq_taken++;
-   /* entry sequencing: 3 stack pushes + vector fetch + internal latching. No
-      paper source exists (MAME charges 0); it is pitch-critical (the TIM1 ISR
-      period sets the DAC rate) — value calibrated against the HW boot jingle. */
-   c->extra_cycles += 8;
+   /* entry sequencing: no paper source exists (MAME charges 0), and it is
+      pitch-critical — the kernel's DAC ISR must FIT within one TIM1 period
+      (hardware recordings show back-to-back service at the timer rate), which
+      bounds entry+ISR+IRET ≤ the 208-cycle period. Entry cost 0 models the
+      pushes overlapping the vector fetch; calibrated against the HW jingle. */
 }
 
 /* IR0/IR1 request-flag masks per interrupt line (0 = unmaskable, no flag). */
@@ -608,7 +609,7 @@ int sm8521_step(sm8521_t *c)
       case 0xF0: c->stopped = 1; break;
       case 0xF1: c->halted = 1; break;
       case 0xF8: c->pc = pop16(c); cyc = (c->sys & 0x40) ? 10 : 8; break;                   /* ret  */
-      case 0xF9: c->ps1 = pop8(c); c->pc = pop16(c); cyc = (c->sys & 0x40) ? 12 : 10; break; /* iret */
+      case 0xF9: c->ps1 = pop8(c); c->pc = pop16(c); cyc = 8; break;  /* iret (3 pops, bus model; MAME's 12 is a guess and overshoots the HW ISR cadence) */
       case 0xFA: c->ps1 &= (uint8_t)~FC; break;                 /* clrc */
       case 0xFB: c->ps1 ^= FC; break;                           /* comc */
       case 0xFC: c->ps1 |= FC; break;                           /* setc */

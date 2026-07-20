@@ -22,9 +22,10 @@ static int cmpd(const void *a, const void *b)
 
 int main(int argc, char **argv)
 {
-   if (argc < 4) { fprintf(stderr, "usage: %s <file.wav> <t0> <t1> [min_amp]\n", argv[0]); return 1; }
+   if (argc < 4) { fprintf(stderr, "usage: %s <file.wav> <t0> <t1> [min_amp] [lp_taps]\n", argv[0]); return 1; }
    double t0 = atof(argv[2]), t1 = atof(argv[3]);
    int min_amp = (argc > 4) ? atoi(argv[4]) : 1200;
+   int lp = (argc > 5) ? atoi(argv[5]) : 1;      /* box lowpass width (1 = off) */
 
    FILE *f = fopen(argv[1], "rb");
    if (!f) { perror(argv[1]); return 1; }
@@ -41,6 +42,13 @@ int main(int argc, char **argv)
    int16_t *buf = malloc((size_t)win * 2 * ch);
    for (long w = from; w + win <= to && nf < 4096; w += win) {
       if (fread(buf, 2 * ch, (size_t)win, f) != (size_t)win) break;
+      if (lp > 1) {                     /* box lowpass: kills resampler imaging */
+         for (long i = 0; i + lp < win; i++) {
+            long acc = 0;
+            for (int k = 0; k < lp; k++) acc += buf[(i + k) * ch];
+            buf[i * ch] = (int16_t)(acc / lp);
+         }
+      }
       int peak = 0;
       for (long i = 0; i < win; i++) {
          int a = buf[i * ch] < 0 ? -buf[i * ch] : buf[i * ch];
