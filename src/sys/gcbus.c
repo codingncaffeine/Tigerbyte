@@ -187,8 +187,8 @@ static void gcbus_dma(gcbus_t *b)
              (sy > lsy + 8) || (sy < lsy - 8)) {
             lmode = mode; lbr = ram[DMBR]; lsy = sy; lw = bw;
             dmalogged++;
-            fprintf(stderr, "[dma] mode=%X DMBR=%02X %dx%d src=(%d,%d) dst=(%d,%d) pal=%02X vp=%02X | src:",
-                    mode, ram[DMBR], bw + 1, bh + 1, sx, sy, dx, dy, pal, ram[DMVP]);
+            fprintf(stderr, "[dma] mode=%X ov=%d DMBR=%02X %dx%d src=(%d,%d) dst=(%d,%d) pal=%02X vp=%02X | src:",
+                    mode, overwrite, ram[DMBR], bw + 1, bh + 1, sx, sy, dx, dy, pal, ram[DMVP]);
             for (int i = 0; i < 8; i++)
                fprintf(stderr, " %02X", sbank[(uint16_t)((sw * sy + (sx >> 2) + i)) & smask]);
             fprintf(stderr, "\n");
@@ -206,9 +206,15 @@ static void gcbus_dma(gcbus_t *b)
          uint16_t sa = (uint16_t)(s_cur & smask), da = (uint16_t)(d_cur & dmask);
          int dadj = (dx_cur ^ 3) << 1, sadj = (sx_cur ^ 3) << 1;
          uint8_t spix = (sbank[sa] >> sadj) & 3;
-         if (overwrite || spix) {
+         uint8_t dpix = (uint8_t)((pal >> (spix << 1)) & 3);
+         /* transparent mode: colour 0 is transparent ink on BOTH sides of the
+            palette remap — a source-0 pixel is skipped (sprite holes) and so is
+            a pixel the palette maps TO 0. Games issue art+mask blit pairs where
+            the mask pass uses pal=00; treating that pass as "paint colour 0"
+            erased the art (a platformer's whole ground layer, in the wild). */
+         if (overwrite || (spix && dpix)) {
             uint8_t other = dbank[da] & (uint8_t)~(3 << dadj);
-            dbank[da] = (uint8_t)(other | (((pal >> (spix << 1)) & 3) << dadj));
+            dbank[da] = (uint8_t)(other | (dpix << dadj));
          }
          sx_cur += adjust_x;
          if (sx_cur & 4) { s_cur += adjust_x; sx_cur &= 3; }
