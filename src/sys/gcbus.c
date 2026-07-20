@@ -2,6 +2,7 @@
 /* Tigerbyte - Game.com system memory bus. See gcbus.h. */
 #include "gcbus.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void gcbus_init(gcbus_t *b)
@@ -167,6 +168,27 @@ static void gcbus_dma(gcbus_t *b)
    case 0x06: dw = 64; dbank = ram + 0xE000; break;   /* VRAM -> ExtRAM */
    }
 
+   {  /* TB_DMALOG: dump game-content blits (cart-tile and ExtRAM sources),
+         collapsing runs that differ only in destination */
+      static int dmalog = -1, dmalogged = 0;
+      static int lmode = -1, lbr = -1, lsy = -1, lw = -1;
+      if (dmalog < 0) dmalog = getenv("TB_DMALOG") != NULL;
+      if (dmalog && dmalogged < 220 &&
+          ((mode == 0x02 && ram[DMBR] >= 16) || mode == 0x04 || mode == 0x06)) {
+         if (mode != lmode || ram[DMBR] != lbr || (int)bw != lw ||
+             (sy > lsy + 8) || (sy < lsy - 8)) {
+            lmode = mode; lbr = ram[DMBR]; lsy = sy; lw = bw;
+            dmalogged++;
+            fprintf(stderr, "[dma] mode=%X DMBR=%02X %dx%d src=(%d,%d) dst=(%d,%d) pal=%02X vp=%02X | src:",
+                    mode, ram[DMBR], bw + 1, bh + 1, sx, sy, dx, dy, pal, ram[DMVP]);
+            for (int i = 0; i < 8; i++)
+               fprintf(stderr, " %02X", sbank[(uint16_t)((sw * sy + (sx >> 2) + i)) & smask]);
+            fprintf(stderr, "\n");
+         } else
+            lsy = sy;
+      }
+   }
+
    int sx_cur = sx & 3, dx_cur = dx & 3;
    int s_cur = sw * sy + (sx >> 2), d_cur = dw * dy + (dx >> 2);
    int s_line = s_cur, d_line = d_cur;
@@ -329,5 +351,14 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
       return;
    }
    if (addr < 0xA000) return;                            /* ROM windows: ignore */
+   if (addr < 0xE000) {                                  /* CPU-direct VRAM write */
+      static int vlog = -1; static long vcount = 0;
+      if (vlog < 0) vlog = getenv("TB_VRAMLOG") != NULL;
+      if (vlog) {
+         vcount++;
+         if (vcount <= 48 || (vcount >= 100000 && vcount < 100048))
+            fprintf(stderr, "[vram] #%ld %04X=%02X\n", vcount, addr, val);
+      }
+   }
    b->ram[addr] = val;                                   /* VRAM + NVRAM */
 }

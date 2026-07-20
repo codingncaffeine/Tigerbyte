@@ -273,18 +273,24 @@ static uint16_t arg_rmb(sm8521_t *c, uint8_t *dst)   /* 8-bit pointer register *
    *dst = (m >> 3) & 7;
    return s;
 }
-static uint16_t arg_rmw(sm8521_t *c, uint8_t *dst)   /* 16-bit pointer register pair */
+static uint16_t arg_rmw_s(sm8521_t *c, uint8_t *dst, int stride)  /* 16-bit pointer register pair */
 {
    uint8_t m = fb(c); uint16_t s, rp = B2W[m & 7];
    switch (m & 0xC0) {                                   /* am: 0=@rr 1=(rr)+ 2=@ww 3=ww(rr) 4=-(rr) */
    case 0x00: c->am = 0; s = rw(c, rp); break;
-   case 0x40: c->am = 1; s = rw(c, rp); ww(c, rp, (uint16_t)(s + 1)); break;
+   case 0x40: c->am = 1; s = rw(c, rp); ww(c, rp, (uint16_t)(s + stride)); break;
    case 0x80: { uint16_t i = fw(c); s = i; if (m & 7) { c->am = 3; s = (uint16_t)(i + rw(c, rp)); } else c->am = 2; } break;
-   default:   c->am = 4; s = (uint16_t)(rw(c, rp) - 1); ww(c, rp, s); break;
+   default:   c->am = 4; s = (uint16_t)(rw(c, rp) - stride); ww(c, rp, s); break;
    }
    *dst = (m >> 3) & 7;
    return s;
 }
+/* Byte data through a word pointer: the auto inc/dec steps by 1. */
+static uint16_t arg_rmw(sm8521_t *c, uint8_t *dst) { return arg_rmw_s(c, dst, 1); }
+/* Word data (MOVW 0x3A/0x3B): the auto inc/dec steps by 2 — an engine block-
+   copying tables with movw (rr)+ depends on the word stride; a 1-byte step
+   shreds every table it copies (the "snow screen" class of failure). */
+static uint16_t arg_rmw2(sm8521_t *c, uint8_t *dst) { return arg_rmw_s(c, dst, 2); }
 
 /* ---- interrupts (mirrors the SM8500 priority ladder) ---- */
 static void take_interrupt(sm8521_t *c, uint16_t vector)
@@ -548,8 +554,8 @@ int sm8521_step(sm8521_t *c)
      else if (op <= 0x37 && op >= 0x30) { ptr = arg_rmw(c, &dst); cyc = CYC_RMW[c->am]; alu8(c, op & 7, dst, rb(c, ptr)); }
      else if (op == 0x38) { ptr = arg_rmw(c, &dst); cyc = CYC_RMW[c->am]; wb(c, dst, rb(c, ptr)); }  /* mov rmw (load) */
      else if (op == 0x39) { ptr = arg_rmw(c, &dst); cyc = CYC_RMW[c->am]; wb(c, ptr, rb(c, dst)); }  /* mov mwr (store) */
-     else if (op == 0x3A) { uint8_t pd; ptr = arg_rmw(c, &pd); cyc = CYC_RMW_MOVW[c->am]; ww(c, B2W[pd], rw(c, ptr)); } /* movw smw */
-     else if (op == 0x3B) { uint8_t pd; ptr = arg_rmw(c, &pd); cyc = CYC_RMW_MOVW[c->am]; ww(c, ptr, rw(c, B2W[pd])); } /* movw mws */
+     else if (op == 0x3A) { uint8_t pd; ptr = arg_rmw2(c, &pd); cyc = CYC_RMW_MOVW[c->am]; ww(c, B2W[pd], rw(c, ptr)); } /* movw smw */
+     else if (op == 0x3B) { uint8_t pd; ptr = arg_rmw2(c, &pd); cyc = CYC_RMW_MOVW[c->am]; ww(c, ptr, rw(c, B2W[pd])); } /* movw mws */
      else if (op == 0x3C) { m = fb(c); if ((m & 0xC0) == 0) ww(c, B2W[(m >> 3) & 7], rw(c, B2W[m & 7])); } /* movw ss */
      else if (op == 0x3E || op == 0x3F) {   /* jmp/call (2) */
       m = fb(c);
