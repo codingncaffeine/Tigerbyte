@@ -154,8 +154,16 @@ static void gcbus_dma(gcbus_t *b)
    int  sw = (ram[LCH] & 0x20) ? 50 : 40, dw = sw;
    uint16_t smask = 0x1FFF, dmask = 0x1FFF;
    uint8_t *vram  = ram + GC_VRAM_BASE;
+   /* DMVP: bit0 = the VRAM participant's page; bit1 = the SECOND page, used
+      only when both operands are VRAM (mode 0 copies bit0-page -> bit1-page).
+      Blits with a ROM/ExtRAM operand take their single VRAM page from bit0.
+      (Reading dest=bit1 for every mode sent ROM-source blits to the hidden
+      buffer whenever a game split the bits — a whole layer went invisible.
+      Titles drawing with bit0==bit1 render identically under both readings.) */
    uint8_t *sbank = vram + ((ram[DMVP] & 1) ? 0x2000 : 0);
-   uint8_t *dbank = vram + ((ram[DMVP] & 2) ? 0x2000 : 0);
+   uint8_t *dbank = (mode == 0x00)
+                  ? vram + ((ram[DMVP] & 2) ? 0x2000 : 0)
+                  : vram + ((ram[DMVP] & 1) ? 0x2000 : 0);
 
    switch (mode) {
    case 0x00: break;                                  /* VRAM -> VRAM */
