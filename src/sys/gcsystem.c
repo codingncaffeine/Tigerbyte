@@ -39,11 +39,8 @@ void gcsystem_run_frame(gcsystem_t *s)
    while (budget > 0 && !c->trapped) {
       b->cur_cycle = GC_CYCLES_PER_FRAME - budget;   /* cycle position for DAC write timestamps */
       int cyc = sm8521_step(c);
-      gcbus_tick(b, cyc);
+      gcbus_tick(b, cyc, c->stopped);
       budget -= cyc;
-      /* The emulated clock oscillator is always stable, so model the
-         clock-ready (CK) signal that wakes a STOP/HALT idle. */
-      if (c->stopped || c->halted) sm8521_set_irq(c, SM_CK, 1);
    }
 
    /* vblank: set LCV status, raise LCDC interrupt when the kernel enabled it */

@@ -81,7 +81,18 @@ host: $(HOST)
 $(HOST): tools/libretro_host.c
 	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-clean:
-	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN) $(BOOT) $(REND) $(FRAME)
+CYCT := cycle_test$(EXE)
+cycletest: $(CYCT)
+	./$(CYCT)
+$(CYCT): tools/cycle_test.c src/cpu/sm8521.c
+	$(CC) $(TOOLCFLAGS) -o $@ $^
 
-.PHONY: all clean spike cpurun bootrun render framerun
+ACAP := audio_capture$(EXE)
+audiocap: $(ACAP)
+$(ACAP): tools/audio_capture.c src/cpu/sm8521.c src/sys/gcbus.c src/sys/ppu.c src/sys/sound.c src/sys/gcsystem.c
+	$(CC) $(TOOLCFLAGS) -o $@ $^
+
+clean:
+	$(RM) $(OBJECTS) $(TARGET) $(SPIKE) $(RUN) $(BOOT) $(REND) $(FRAME) $(CYCT) $(ACAP)
+
+.PHONY: all clean spike cpurun bootrun render framerun cycletest audiocap

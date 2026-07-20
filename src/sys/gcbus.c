@@ -175,8 +175,18 @@ static void gcbus_dma(gcbus_t *b)
       s_line += dec_y ? -sw : sw; s_cur = s_line;
       d_line += dw; d_cur = d_line;
    }
-   ram[DMC] = (uint8_t)(dmc & 0x7F);   /* clear start/busy */
-   if (b->irq) b->irq(b->irq_user, GC_IRQ_DMA);
+   /* The pixels land in VRAM immediately (it's CPU-write-only, nothing can peek),
+      but completion must take real time: the kernel starts a blit and then HALTs
+      waiting for the DMA interrupt — an instant IRQ gets consumed before the HALT
+      and the kernel oversleeps into the next 1 Hz clock tick (boot ran at one
+      animation step per second). ~1.5 cycles/pixel of bus occupancy. */
+   if (b->irq) {
+      int px = ((int)bw + 1) * ((int)bh + 1);
+      b->dma_cycles_left = px + (px >> 1);
+      if (b->dma_cycles_left < 8) b->dma_cycles_left = 8;
+   } else {
+      ram[DMC] = (uint8_t)(dmc & 0x7F);  /* bare-CPU tools (no IRQ sink): instant */
+   }
 }
 
 /* TM*C prescaler-select -> divisor (halved, per the SM8521 timer). */
@@ -188,8 +198,30 @@ void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user)
    b->irq_user = user;
 }
 
-void gcbus_tick(gcbus_t *b, int cycles)
+void gcbus_tick(gcbus_t *b, int cycles, int stopped)
 {
+   /* clock timer (CK): a real periodic source — 1 Hz at the default 1 s select —
+      driven by the sub-clock, so it runs even in STOP mode and is what wakes the
+      kernel's boot STOP. (Was: a fake CK fired every idle step, which storm-fed
+      the CK ISR and distorted idle timing.) */
+   b->ck_accum += (uint32_t)cycles;
+   if (b->ck_accum >= 4915200u) {
+      b->ck_accum -= 4915200u;
+      b->dbg_ck++;
+      if (b->irq) b->irq(b->irq_user, GC_IRQ_CK);
+   }
+
+   if (stopped) return;              /* STOP halts the main clock: TM0/TM1 + blitter freeze */
+
+   if (b->dma_cycles_left > 0) {
+      b->dma_cycles_left -= cycles;
+      if (b->dma_cycles_left <= 0) {
+         b->dma_cycles_left = 0;
+         b->ram[0x34] &= 0x7F;                            /* DMC: clear start/busy */
+         if (b->irq) b->irq(b->irq_user, GC_IRQ_DMA);
+      }
+   }
+
    for (int t = 0; t < 2; t++) {
       gc_timer_t *tm = &b->timer[t];
       if (!tm->enabled || tm->prescale_max <= 0) continue;

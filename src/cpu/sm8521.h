@@ -42,6 +42,7 @@ typedef struct {
    uint32_t irq_taken;             /* count of interrupts actually vectored */
    uint8_t  am;                    /* addressing-mode index (0-4) from arg_rmb/arg_rmw */
    int      bus_n;                 /* bus accesses this instruction (derived cycle timing) */
+   int      extra_cycles;          /* pending interrupt-entry cost, consumed by the next step */
 
    sm8521_read_fn  rd;
    sm8521_write_fn wr;

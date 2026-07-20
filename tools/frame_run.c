@@ -38,6 +38,7 @@ int main(int argc, char **argv)
    /* a proper tap: press for ~8 frames, then release (a touch UI acts on release) */
    int t0 = frames / 3, t1 = t0 + 8;
    int audio_peak = 0;
+   uint32_t p_irq = 0, p_ovf = 0, p_dac = 0;
    for (int f = 0; f < frames && !sys.cpu.trapped; f++) {
       int act = (f >= t0 && f < t1);
       gcbus_set_buttons(&sys.bus, act ? hold : 0xFF, 0xFF, 0xFF);
@@ -46,6 +47,18 @@ int main(int argc, char **argv)
       gcsystem_run_frame(&sys);
       for (int k = 0; k < sys.audio_samples; k++) {
          int v = sys.audio[k * 2]; if (v < 0) v = -v; if (v > audio_peak) audio_peak = v;
+      }
+      if (getenv("TB_TRACE") && (f % 60) == 59) {   /* once per emulated second */
+         fprintf(stderr,
+            "[%3ds] PC=%04X %s CLKT=%02X IE=%02X.%02X iflags=%03X TM1C=%02X TM1D(tc)=%02X "
+            "irq/s=%u ovf/s=%u ck=%u dac/s=%u LCDC=%02X\n",
+            (f + 1) / 60, sys.cpu.pc,
+            sys.cpu.stopped ? "STOP" : (sys.cpu.halted ? "HALT" : "run "),
+            sys.bus.ram[0x1a], sys.bus.ram[0x10], sys.bus.ram[0x11], sys.cpu.iflags,
+            sys.bus.ram[0x52], sys.bus.timer[1].reload,
+            sys.cpu.irq_taken - p_irq, sys.bus.dbg_ovf - p_ovf, sys.bus.dbg_ck,
+            sys.bus.snd_dac_writes - p_dac, sys.bus.ram[0x30]);
+         p_irq = sys.cpu.irq_taken; p_ovf = sys.bus.dbg_ovf; p_dac = sys.bus.snd_dac_writes;
       }
    }
    {

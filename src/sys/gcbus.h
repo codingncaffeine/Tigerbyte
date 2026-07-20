@@ -52,6 +52,9 @@ typedef struct {
    uint32_t   dac_cycle[2048];           /* cycle-within-frame each DAC write happened at (~0..82287) */
    int        dac_stream_n;              /* count captured this frame (reset each frame) */
    int        cur_cycle;                 /* running cycle position within the frame (set by gcsystem) */
+   uint32_t   ck_accum;                  /* cycle accumulator for the 1 Hz clock-timer (CK) tick */
+   uint32_t   dbg_ck;                    /* clock-timer interrupts raised */
+   int        dma_cycles_left;           /* blitter busy time remaining (completion IRQ pends) */
 } gcbus_t;
 
 void gcbus_init(gcbus_t *b);
@@ -71,8 +74,10 @@ void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user);
 void gcbus_set_buttons(gcbus_t *b, uint8_t in0, uint8_t in1, uint8_t in2);
 void gcbus_set_touch(gcbus_t *b, int column, uint16_t rows);
 
-/* Advance the timers by `cycles` and raise overflow interrupts via the handler. */
-void gcbus_tick(gcbus_t *b, int cycles);
+/* Advance the timers + clock-timer by `cycles` and raise interrupts via the
+ * handler. `stopped` = CPU is in STOP mode: the main clock (and so TM0/TM1) is
+ * halted, but the sub-clock-driven clock timer keeps running. */
+void gcbus_tick(gcbus_t *b, int cycles, int stopped);
 
 /* CPU bus callbacks (cast ctx to gcbus_t*). */
 uint8_t gcbus_read(void *ctx, uint16_t addr);

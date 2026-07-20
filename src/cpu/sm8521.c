@@ -213,6 +213,35 @@ static uint8_t rot8(sm8521_t *c, int kind, uint8_t v)
    return res;
 }
 
+/* Decimal adjust after BCD add/sub. Correction constants per the SM8500 model
+   (BSD-3 MAME, © Wilbert Pol): D selects the subtract table, C/H pick the fix.
+   Affects C (set-only), Z, S; D/H/V are preserved. */
+static uint8_t da8(sm8521_t *c, uint8_t v)
+{
+   unsigned res = v;
+   uint8_t f = c->ps1;
+   if (f & FD) {
+      if (f & FC) res += (f & FH) ? 0x9A : 0xA0;
+      else if (f & FH) res += 0xFA;
+   } else if (f & FC) {
+      if (f & FH) res += 0x66;
+      else res += ((res & 0x0F) < 10) ? 0x60 : 0x66;
+   } else if (f & FH) {
+      if ((res & 0xF0) < 0xA0) res += 0x06;
+      else { res += 0x66; f |= FC; }
+   } else if ((res & 0x0F) < 10) {
+      if ((res & 0xF0) >= 0xA0) { res += 0x60; f |= FC; }
+   } else {
+      if ((res & 0xF0) < 0x90) res += 0x06;
+      else { res += 0x66; f |= FC; }
+   }
+   f &= (uint8_t)~(FZ | FS);
+   if ((res & 0xFF) == 0) f |= FZ;
+   if (res & 0x80) f |= FS;
+   c->ps1 = f;
+   return (uint8_t)res;
+}
+
 /* ---- condition codes (cc 0..15) ---- */
 static int cond(sm8521_t *c, uint8_t cc)
 {
@@ -273,6 +302,10 @@ static void take_interrupt(sm8521_t *c, uint16_t vector)
    if (c->sys & 0x40) c->wr(c->ctx, 0x1c, (uint8_t)(c->sp >> 8));
    c->pc = rw(c, vector);
    c->irq_taken++;
+   /* entry sequencing: 3 stack pushes + vector fetch + internal latching. No
+      paper source exists (MAME charges 0); 12 ≈ the bus-model cost, and it is
+      pitch-critical (the TIM1 ISR period sets the DAC rate) — calibrate vs HW. */
+   c->extra_cycles += 12;
 }
 static void process_interrupts(sm8521_t *c)
 {
@@ -285,6 +318,12 @@ static void process_interrupts(sm8521_t *c)
       c->ps1 = c->rd(c->ctx, 0x1f);
       uint8_t ie0 = c->rd(c->ctx, 0x10), ie1 = c->rd(c->ctx, 0x11);
       int prio = c->ps0 & 0x07, gie = c->ps1 & FI;
+      /* latch the request flag in IR0/IR1 even when masked (software polls these;
+         the handler clears them by writing 0x12/0x13) */
+      static const uint8_t IR0M[11] = { 0, 0x80, 0x40, 0x10, 0x08, 0x01, 0, 0, 0, 0, 0 };
+      static const uint8_t IR1M[11] = { 0, 0, 0, 0, 0, 0, 0x40, 0x10, 0x04, 0, 0 };
+      if (IR0M[line]) c->wr(c->ctx, 0x12, (uint8_t)(c->rd(c->ctx, 0x12) | IR0M[line]));
+      if (IR1M[line]) c->wr(c->ctx, 0x13, (uint8_t)(c->rd(c->ctx, 0x13) | IR1M[line]));
       switch (line) {
       case SM_WDT:  take_interrupt(c, 0x101C); break;
       case SM_ILL:
@@ -317,7 +356,7 @@ void sm8521_reset(sm8521_t *c)
    for (unsigned i = 0; i < sizeof c->reg; i++) c->reg[i] = 0;
    c->pc = 0x1020; c->sp = 0; c->ps0 = 0; c->ps1 = 0; c->sys = 0;
    c->iflags = 0; c->check_irq = 0; c->halted = 0; c->stopped = 0;
-   c->trapped = 0; c->trap_op = 0; c->trap_pc = 0;
+   c->trapped = 0; c->trap_op = 0; c->trap_pc = 0; c->extra_cycles = 0;
    ww(c, 0x10, 0);        /* IE0,IE1 */
    ww(c, 0x12, 0);        /* IR0,IR1 */
    ww(c, 0x14, 0xFFFF);   /* P0,P1   */
@@ -387,7 +426,9 @@ static int use_fixed_cycles(uint8_t op)
 int sm8521_step(sm8521_t *c)
 {
    process_interrupts(c);
-   if (c->halted || c->stopped) return 4;
+   int extra = c->extra_cycles;     /* interrupt-entry cost from a vector just taken */
+   c->extra_cycles = 0;
+   if (c->halted || c->stopped) return 4 + extra;
 
    /* re-sync the registers the architecture keeps in memory */
    c->sys = c->rd(c->ctx, 0x19);
@@ -418,7 +459,7 @@ int sm8521_step(sm8521_t *c)
       case 0x09: wb(c, r, dec8(c, v)); break;
       case 0x0A: wb(c, r, rot8(c, 5, v)); break;            /* sra */
       case 0x0B: wb(c, r, rot8(c, 6, v)); break;            /* sll */
-      case 0x0C: trap(c, op, at); break;                    /* da  (TODO) */
+      case 0x0C: wb(c, r, da8(c, v)); break;                /* da  */
       case 0x0D: wb(c, r, (uint8_t)((v >> 4) | (v << 4))); break;  /* swap (no flags) */
       case 0x0E: push8(c, v); break;                        /* push R */
       case 0x0F: wb(c, r, pop8(c)); break;                  /* pop R  */
@@ -428,7 +469,34 @@ int sm8521_step(sm8521_t *c)
       if ((m & 0xC0) == 0) alu8(c, op & 7, (m >> 3) & 7, rb(c, m & 7));
    } else if (op == 0x18) { uint8_t r = fb(c); ww(c, r, add16(c, rw(c, r), 1, 0)); }  /* incw */
      else if (op == 0x19) { uint8_t r = fb(c); ww(c, r, sub16(c, rw(c, r), 1, 0, 1)); } /* decw */
-     else if (op == 0x1C || op == 0x1D) {  /* bclr/bset riB (indexed bit) */
+     else if (op == 0x1A || op == 0x1B) {  /* unary-op groups on @Rr (register-indirect) */
+      m = fb(c);
+      /* mode 00: bits 3-5 = pointer reg, bits 0-2 = sub-op; other modes mirror
+         the SM8500 degenerate decode (pointer = raw operand byte, sub-op 0) */
+      uint16_t pr  = ((m & 0xC0) == 0) ? ((m >> 3) & 7) : m;
+      int      sub = ((m & 0xC0) == 0) ? (m & 7) : 0;
+      uint16_t tgt = rb(c, pr);
+      uint8_t  v   = rb(c, tgt);
+      if (op == 0x1A) {
+         switch (sub) {                                    /* clr/neg/com/rr/rl/rrc/rlc/srl */
+         case 0: wb(c, tgt, 0); break;
+         case 1: wb(c, tgt, neg8(c, v)); break;
+         case 2: wb(c, tgt, com8(c, v)); break;
+         default: wb(c, tgt, rot8(c, sub - 3, v)); break;  /* rr,rl,rrc,rlc,srl = kinds 0-4 */
+         }
+      } else {
+         switch (sub) {                                    /* inc/dec/sra/sll/da/swap/push/pop */
+         case 0: wb(c, tgt, inc8(c, v)); break;
+         case 1: wb(c, tgt, dec8(c, v)); break;
+         case 2: wb(c, tgt, rot8(c, 5, v)); break;         /* sra */
+         case 3: wb(c, tgt, rot8(c, 6, v)); break;         /* sll */
+         case 4: wb(c, tgt, da8(c, v)); break;
+         case 5: wb(c, tgt, (uint8_t)((v >> 4) | (v << 4))); break; /* swap (no flags) */
+         case 6: push8(c, v); break;                       /* push @Rr */
+         case 7: wb(c, tgt, pop8(c)); break;               /* pop @Rr  */
+         }
+      }
+   } else if (op == 0x1C || op == 0x1D) {  /* bclr/bset riB (indexed bit) */
       m = fb(c); uint8_t bit = (uint8_t)(1 << (m & 7)); uint8_t disp = fb(c);
       uint16_t addr = (m & 0x38) ? (uint16_t)(disp + rb(c, (m >> 3) & 7)) : (uint16_t)(0xFF00 + disp);
       uint8_t v = rb(c, addr);
@@ -442,7 +510,8 @@ int sm8521_step(sm8521_t *c)
       m = fb(c); uint8_t bit = (uint8_t)(1 << (m & 7)); uint8_t disp = fb(c);
       uint16_t addr = (m & 0x38) ? (uint16_t)(disp + rb(c, (m >> 3) & 7)) : (uint16_t)(0xFF00 + disp);
       int8_t off = (int8_t)fb(c); int set = (rb(c, addr) & bit) != 0;
-      if (op == 0x2A ? !set : set) c->pc = (uint16_t)(c->pc + off);
+      cyc = 10;
+      if (op == 0x2A ? !set : set) { c->pc = (uint16_t)(c->pc + off); cyc = (m & 0x38) ? 14 : 16; }
    } else if (op == 0x2E) { uint8_t v = fb(c); c->ps0 = v; wb(c, 0x1e, v); } /* mov PS0,i */
      else if (op == 0x2C) { a1 = fb(c); { uint16_t v = rw(c, a1); v = (v & 0x80) ? (uint16_t)(v | 0xFF00) : (uint16_t)(v & 0x00FF); ww(c, a1, v); } } /* exts */
      else if (op == 0x2F) { a1 = fb(c); a2 = fb(c); c->ps1 &= (uint8_t)~FV; if ((rb(c, a1) & a2) == 0) c->ps1 |= FZ; else c->ps1 &= (uint8_t)~FZ; } /* btst */
@@ -454,13 +523,17 @@ int sm8521_step(sm8521_t *c)
      else if (op == 0x3C) { m = fb(c); if ((m & 0xC0) == 0) ww(c, B2W[(m >> 3) & 7], rw(c, B2W[m & 7])); } /* movw ss */
      else if (op == 0x3E || op == 0x3F) {   /* jmp/call (2) */
       m = fb(c);
-      if ((m & 0xC0) == 0x00) t = rw(c, B2W[m & 7]);
-      else if ((m & 0xC0) == 0x40) { uint16_t e = fw(c); if (m & 0x38) e = (uint16_t)(e + rb(c, (m >> 3) & 7)); t = rw(c, e); }
+      if ((m & 0xC0) == 0x00) { t = rw(c, B2W[m & 7]);
+         cyc = (op == 0x3E) ? 7 : ((c->sys & 0x40) ? 14 : 11); }
+      else if ((m & 0xC0) == 0x40) { uint16_t e = fw(c); int idx = (m & 0x38) != 0;
+         if (idx) e = (uint16_t)(e + rb(c, (m >> 3) & 7));
+         t = rw(c, e);
+         cyc = (op == 0x3E) ? (idx ? 19 : 15) : ((c->sys & 0x40) ? (idx ? 26 : 22) : (idx ? 23 : 19)); }
       else { trap(c, op, at); t = c->pc; }
       if (!c->trapped) { if (op == 0x3F) push16(c, c->pc); c->pc = t; }
    } else if (op <= 0x47 && op >= 0x40) { a1 = fb(c); a2 = fb(c); alu8(c, op & 7, a2, rb(c, a1)); } /* ALU RR */
      else if (op == 0x48) { a1 = fb(c); a2 = fb(c); wb(c, a2, rb(c, a1)); }   /* mov RR */
-     else if (op == 0x49) { t = fw(c); push16(c, c->pc); c->pc = t; }         /* call addr */
+     else if (op == 0x49) { t = fw(c); push16(c, c->pc); c->pc = t; cyc = (c->sys & 0x40) ? 12 : 10; } /* call addr */
      else if (op == 0x4A) { a1 = fb(c); a2 = fb(c); ww(c, a2, rw(c, a1)); }   /* movw SS */
      else if (op == 0x4B) { uint8_t r = fb(c); t = fw(c); ww(c, r, t); }      /* movw Sw */
      else if (op == 0x4C) { a1 = fb(c); a2 = fb(c); { uint16_t res = (uint16_t)(rb(c, a2 | 1) * rb(c, a1)); ww(c, a2, res); c->ps1 &= (uint8_t)~(FZ | FV); if (res == 0) c->ps1 |= FZ; } } /* mult RR */
@@ -487,11 +560,11 @@ int sm8521_step(sm8521_t *c)
      else if (op >= 0x68 && op <= 0x6F) { uint8_t r = fb(c); t = fw(c); alu16(c, op & 7, r, t); } /* ALUW Sw */
      else if (op >= 0x70 && op <= 0x77) {   /* dbnz r,rel */
       int8_t off = (int8_t)fb(c); uint8_t v = (uint8_t)(rb(c, op & 7) - 1);
-      wb(c, op & 7, v); if (v) c->pc = (uint16_t)(c->pc + off);
+      wb(c, op & 7, v); cyc = 6; if (v) { c->pc = (uint16_t)(c->pc + off); cyc = 10; }
    } else if (op >= 0x78 && op <= 0x7F) { t = fw(c); ww(c, B2W[op & 7], t); } /* movw riw */
      else if (op >= 0x80 && op <= 0x8F) {   /* bbc/bbs R,#bit,rel */
       uint8_t r = fb(c); int8_t off = (int8_t)fb(c); int set = (rb(c, r) & (1 << (op & 7))) != 0;
-      if ((op & 0x08) ? set : !set) c->pc = (uint16_t)(c->pc + off);
+      cyc = 6; if ((op & 0x08) ? set : !set) { c->pc = (uint16_t)(c->pc + off); cyc = 10; }
    } else if (op >= 0x90 && op <= 0x9F) { t = fw(c); if (cond(c, op & 0x0F)) c->pc = t; } /* jmp cc */
      else if (op >= 0xA0 && op <= 0xAF) {   /* bclr/bset R,#bit */
       uint8_t r = fb(c); uint8_t v = rb(c, r), bit = (uint8_t)(1 << (op & 7));
@@ -500,13 +573,13 @@ int sm8521_step(sm8521_t *c)
      else if (op >= 0xB8 && op <= 0xBF) { uint8_t r = fb(c); wb(c, r, rb(c, op & 7)); }      /* mov Rr */
      else if (op >= 0xC0 && op <= 0xC7) { uint8_t i = fb(c); wb(c, op & 7, i); }             /* mov rib */
      else if (op >= 0xC8 && op <= 0xCF) { uint8_t i = fb(c); wb(c, 0x10 + (op & 7), i); }    /* mov pi  */
-     else if (op >= 0xD0 && op <= 0xDF) { int8_t off = (int8_t)fb(c); if (cond(c, op & 0x0F)) c->pc = (uint16_t)(c->pc + off); } /* br cc */
-     else if (op >= 0xE0 && op <= 0xEF) { uint8_t i = fb(c); push16(c, c->pc); c->pc = (uint16_t)(0x1000 | ((op & 0x0F) << 8) | i); } /* cals */
+     else if (op >= 0xD0 && op <= 0xDF) { int8_t off = (int8_t)fb(c); cyc = 4; if (cond(c, op & 0x0F)) { c->pc = (uint16_t)(c->pc + off); cyc = 8; } } /* br cc (taken=8 SDK-proven) */
+     else if (op >= 0xE0 && op <= 0xEF) { uint8_t i = fb(c); push16(c, c->pc); c->pc = (uint16_t)(0x1000 | ((op & 0x0F) << 8) | i); cyc = (c->sys & 0x40) ? 12 : 9; } /* cals */
      else switch (op) {
       case 0xF0: c->stopped = 1; break;
       case 0xF1: c->halted = 1; break;
-      case 0xF8: c->pc = pop16(c); break;                       /* ret  */
-      case 0xF9: c->ps1 = pop8(c); c->pc = pop16(c); break;     /* iret */
+      case 0xF8: c->pc = pop16(c); cyc = (c->sys & 0x40) ? 10 : 8; break;                   /* ret  */
+      case 0xF9: c->ps1 = pop8(c); c->pc = pop16(c); cyc = (c->sys & 0x40) ? 12 : 10; break; /* iret */
       case 0xFA: c->ps1 &= (uint8_t)~FC; break;                 /* clrc */
       case 0xFB: c->ps1 ^= FC; break;                           /* comc */
       case 0xFC: c->ps1 |= FC; break;                           /* setc */
@@ -528,5 +601,5 @@ int sm8521_step(sm8521_t *c)
    c->wr(c->ctx, 0x1f, c->ps1);
 
    if (c->trapped) c->pc = at;   /* rewind so the trap PC is the faulting op */
-   return cyc;
+   return cyc + extra;
 }
