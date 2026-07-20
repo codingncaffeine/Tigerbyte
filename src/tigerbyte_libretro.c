@@ -106,7 +106,7 @@ void retro_set_environment(retro_environment_t cb)
       tuned by ear, and the nominal/MAME values remain for measurement work. */
    static const struct retro_variable vars[] = {
       { "tigerbyte_clock",
-        "System clock; 6.35 MHz (calibrated)|6.30 MHz|6.40 MHz|6.25 MHz|6.45 MHz|6.5536 MHz|original 4.92 MHz|mame 5.53 MHz" },
+        "System clock; 6.30 MHz (calibrated)|6.25 MHz|6.20 MHz|6.35 MHz|6.40 MHz|6.5536 MHz|original 4.92 MHz|mame 5.53 MHz" },
       { NULL, NULL }
    };
    cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void *)vars);
@@ -115,7 +115,7 @@ void retro_set_environment(retro_environment_t cb)
 static void apply_clock_option(void)
 {
    struct retro_variable var = { "tigerbyte_clock", NULL };
-   int hz = 6350000;
+   int hz = 6300000;
    if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
       float mhz = 0.0f;
       if      (var.value[0] == 'o') hz = 4915200;
