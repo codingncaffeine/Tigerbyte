@@ -20,6 +20,12 @@ SOURCES := src/tigerbyte_libretro.c \
            src/sys/gcsystem.c
 OBJECTS := $(SOURCES:.c=.o)
 
+# Every object depends on every header: struct layouts (gcbus_t/gcsystem_t)
+# cross TU boundaries, and an incremental build mixing pre- and post-layout
+# objects links fine but corrupts state at runtime.
+HDRS := $(wildcard src/*.h src/cpu/*.h src/sys/*.h)
+$(OBJECTS): $(HDRS)
+
 # ---- platform selection ----
 ifeq ($(OS),Windows_NT)
    platform ?= win
