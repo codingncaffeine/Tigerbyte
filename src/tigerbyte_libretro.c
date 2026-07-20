@@ -75,7 +75,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "Tigerbyte";
-   info->library_version  = "0.3.1";
+   info->library_version  = "0.3.2";
    info->valid_extensions = "tgc|bin";
    info->need_fullpath    = false;     /* deliver the cart image in game->data */
    info->block_extract    = false;
@@ -99,13 +99,14 @@ void retro_set_environment(retro_environment_t cb)
    cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_rom);  /* may boot to the shell */
 
    /* The SDK's delay loops prove 4.9152 MHz for CPU-visible timing, but real
-      boot recordings pace the whole machine 4/3 faster than the model at that
+      boot recordings pace the whole machine ~30% faster than the model at that
       clock — either the console really runs the part past its rating or the
-      unanchored opcode costs are collectively ~25% high. "Calibrated" matches
-      the recordings; the alternatives are kept for measurement work. */
+      unanchored opcode costs are collectively high. The calibrated default
+      matches the recordings' tempo; the fine steps let the last percent be
+      tuned by ear, and the nominal/MAME values remain for measurement work. */
    static const struct retro_variable vars[] = {
       { "tigerbyte_clock",
-        "System clock; calibrated 6.55 MHz|original 4.92 MHz|mame 5.53 MHz" },
+        "System clock; 6.35 MHz (calibrated)|6.30 MHz|6.40 MHz|6.25 MHz|6.45 MHz|6.5536 MHz|original 4.92 MHz|mame 5.53 MHz" },
       { NULL, NULL }
    };
    cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void *)vars);
@@ -114,10 +115,13 @@ void retro_set_environment(retro_environment_t cb)
 static void apply_clock_option(void)
 {
    struct retro_variable var = { "tigerbyte_clock", NULL };
-   int hz = 6553600;
+   int hz = 6350000;
    if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
+      float mhz = 0.0f;
       if      (var.value[0] == 'o') hz = 4915200;
       else if (var.value[0] == 'm') hz = 5529600;
+      else if (sscanf(var.value, "%f", &mhz) == 1 && mhz > 1.0f && mhz < 20.0f)
+         hz = (int)(mhz * 1000000.0f + 0.5f);
    }
    gcsystem_set_clock(&sys, hz);
 }
