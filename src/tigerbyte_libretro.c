@@ -75,7 +75,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "Tigerbyte";
-   info->library_version  = "0.3.12";
+   info->library_version  = "0.3.13";
    info->valid_extensions = "tgc|bin";
    info->need_fullpath    = false;     /* deliver the cart image in game->data */
    info->block_extract    = false;
@@ -274,7 +274,7 @@ bool retro_load_game(const struct retro_game_info *game)
 
    gcsystem_reset(&sys);
    system_ready = 1;
-   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.12 clock=%d\n",
+   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.13 clock=%d\n",
           (unsigned long)(game ? game->size : 0), system_ready, sys.clock_hz);
    return true;
 }
