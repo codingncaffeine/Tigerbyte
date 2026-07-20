@@ -43,9 +43,11 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
    float fn   = (master && en2 && sg2t > 1) ? (4915200.0f / (sg2t - 1)) / rate : 0.0f;
    if (s->lfsr == 0) s->lfsr = 0x89abcdefu;                 /* seed; 0 is a dead LFSR */
 
-   /* DAC resampling cursor: walk the timestamped writes as the output advances. */
+   /* DAC resampling cursor: walk the timestamped writes as the output advances.
+      The level carries across frame seams — restarting from this frame's first
+      write put a step discontinuity at every 60 Hz boundary. */
    int dw = 0;
-   int dac_prev_v = (dac_n > 0) ? dac_stream[0] : ram[0x4E];
+   int dac_prev_v = s->dac_primed ? s->dac_last : ((dac_n > 0) ? dac_stream[0] : ram[0x4E]);
    int dac_prev_c = 0;
 
    for (int i = 0; i < n; i++) {
@@ -93,4 +95,8 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
       if (mix < -32768) mix = -32768;
       out[i * 2] = out[i * 2 + 1] = (int16_t)mix;
    }
+
+   /* remember the closing DAC level for the next frame's seam */
+   s->dac_last   = (dac_n > 0) ? dac_stream[dac_n - 1] : dac_prev_v;
+   s->dac_primed = 1;
 }

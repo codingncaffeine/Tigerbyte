@@ -19,6 +19,8 @@ typedef struct {
    uint32_t lfsr;       /* SG2 noise LFSR state                    */
    int      noise_out;  /* SG2 noise 1-bit toggle output           */
    float    noise_phase;/* SG2 noise step accumulator              */
+   int      dac_last;   /* DAC level carried across frame seams    */
+   int      dac_primed; /* dac_last holds a real level             */
 } gc_sound_t;
 
 /* Generate `n` interleaved-stereo int16 samples from the register page `ram`.
