@@ -45,6 +45,12 @@ int main(int argc, char **argv)
          w16(f, (uint16_t)sys.audio[i * 2 + 1]);
          nsamp++;
       }
+      if (fr == 180 && sys.bus.dac_stream_n > 25) {   /* one mid-jingle frame: ISR cadence */
+         fprintf(stderr, "[cadence] n=%d deltas:", sys.bus.dac_stream_n);
+         for (int i = 1; i <= 24; i++)
+            fprintf(stderr, " %u", sys.bus.dac_cycle[i] - sys.bus.dac_cycle[i - 1]);
+         fprintf(stderr, "\n");
+      }
       if ((fr % 30) == 29) {   /* twice/sec: the game's live TIM1 config + our DAC rate */
          uint32_t d = (sys.bus.snd_dac_writes - last_dac) * 2;  /* -> per second */
          last_dac = sys.bus.snd_dac_writes;

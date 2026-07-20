@@ -189,8 +189,16 @@ static void gcbus_dma(gcbus_t *b)
    }
 }
 
-/* TM*C prescaler-select -> divisor (halved, per the SM8521 timer). */
-static const int TIMER_LIMIT[8] = { 2, 1024, 2048, 4096, 8192, 16384, 32768, 65536 };
+/* TM*C prescaler-select -> divisor. The datasheet's table (p.31: fCK/2, /1024,
+   ... /65536) describes the timer OUTPUT square wave, which inverts on each
+   counter/time-constant coincidence — so coincidences (and the interrupt) run at
+   TWICE those rates, i.e. an effective divisor of half the table. Empirically
+   pinned by the real-hardware boot recording: the kernel programs sel=0/TC=208
+   and streams the DAC from every 3rd TIM1 interrupt; only the halved divisor
+   (interrupt rate fCK/208 = 23.6 kHz, DAC ~7.9 kHz) reproduces the recording's
+   pitch/length — fCK/(2*208) leaves the jingle an octave low and twice as long.
+   (Same trap MAME's "countdown goes twice as fast as it should" note fell in.) */
+static const int TIMER_EFF_DIV[8] = { 1, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
 
 void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user)
 {
@@ -200,16 +208,20 @@ void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user)
 
 void gcbus_tick(gcbus_t *b, int cycles, int stopped)
 {
-   /* clock timer (CK): a real periodic source — 1 Hz at the default 1 s select —
-      driven by the sub-clock, so it runs even in STOP mode and is what wakes the
-      kernel's boot STOP. (Was: a fake CK fired every idle step, which storm-fed
-      the CK ISR and distorted idle timing.) */
-   b->ck_accum += (uint32_t)cycles;
-   if (b->ck_accum >= 4915200u) {
-      b->ck_accum -= 4915200u;
-      b->dbg_ck++;
-      if (b->irq) b->irq(b->irq_user, GC_IRQ_CK);
-   }
+   /* clock timer (CK): a real periodic source per CLKT (0x1A) — bit7 run/reset,
+      bit6 selects 1 s / 1 min. Sub-clock driven, so it runs even in STOP mode
+      and is what wakes the kernel's boot STOP. (Was: a fake CK fired every idle
+      step, which storm-fed the CK ISR and distorted idle timing.) */
+   if (b->ram[0x1a] & 0x80) {
+      uint32_t period = (b->ram[0x1a] & 0x40) ? 4915200u * 60u : 4915200u;
+      b->ck_accum += (uint32_t)cycles;
+      if (b->ck_accum >= period) {
+         b->ck_accum -= period;
+         b->dbg_ck++;
+         if (b->irq) b->irq(b->irq_user, GC_IRQ_CK);
+      }
+   } else
+      b->ck_accum = 0;
 
    if (stopped) return;              /* STOP halts the main clock: TM0/TM1 + blitter freeze */
 
@@ -259,13 +271,13 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
          return;
       case 0x50:  /* TM0C */
          b->timer[0].enabled = (val & 0x80) != 0;
-         b->timer[0].prescale_max = TIMER_LIMIT[val & 7] >> 1;
+         b->timer[0].prescale_max = TIMER_EFF_DIV[val & 7];
          b->timer[0].prescale_count = 0;
          b->ram[0x50] = val; b->ram[0x51] = 0; return;
       case 0x51:  b->timer[0].reload = val; b->ram[0x51] = 0; return;   /* TM0D */
       case 0x52:  /* TM1C */
          b->timer[1].enabled = (val & 0x80) != 0;
-         b->timer[1].prescale_max = TIMER_LIMIT[val & 7] >> 1;
+         b->timer[1].prescale_max = TIMER_EFF_DIV[val & 7];
          b->timer[1].prescale_count = 0;
          b->ram[0x52] = val; b->ram[0x53] = 0; return;
       case 0x53:  b->timer[1].reload = val; b->ram[0x53] = 0; return;   /* TM1D */

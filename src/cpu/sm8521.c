@@ -303,27 +303,45 @@ static void take_interrupt(sm8521_t *c, uint16_t vector)
    c->pc = rw(c, vector);
    c->irq_taken++;
    /* entry sequencing: 3 stack pushes + vector fetch + internal latching. No
-      paper source exists (MAME charges 0); 12 ≈ the bus-model cost, and it is
-      pitch-critical (the TIM1 ISR period sets the DAC rate) — calibrate vs HW. */
-   c->extra_cycles += 12;
+      paper source exists (MAME charges 0); it is pitch-critical (the TIM1 ISR
+      period sets the DAC rate) — value calibrated against the HW boot jingle. */
+   c->extra_cycles += 8;
 }
+
+/* IR0/IR1 request-flag masks per interrupt line (0 = unmaskable, no flag). */
+static const uint8_t IR0M[11] = { 0, 0x80, 0x40, 0x10, 0x08, 0x01, 0, 0, 0, 0, 0 };
+static const uint8_t IR1M[11] = { 0, 0, 0, 0, 0, 0, 0x40, 0x10, 0x04, 0, 0 };
+
+/* Level-latched interrupt requests, like the hardware: a request sets its
+   IR0/IR1 flag and STAYS pending while masked (it is NOT dropped — the flag
+   only clears when the CPU vectors it or software writes IR0/IR1). This is
+   what lets the kernel's TIM1 ISR service every timer tick back-to-back: the
+   overflow that lands mid-ISR re-vectors right after IRET. (MAME consumes
+   masked requests instead, and its DAC runs measurably slow because of it.) */
 static void process_interrupts(sm8521_t *c)
 {
    if (!c->check_irq) return;
+
+   /* software owns the request flags: a cleared IR bit cancels the request */
+   {
+      uint8_t ir0 = c->rd(c->ctx, 0x12), ir1 = c->rd(c->ctx, 0x13);
+      uint16_t lvl = (uint16_t)((1u << SM_ILL) | (1u << SM_NMI) | (1u << SM_WDT));
+      for (int line = 0; line < 11; line++)
+         if ((ir0 & IR0M[line]) || (ir1 & IR1M[line])) lvl |= (uint16_t)(1u << line);
+      c->iflags &= lvl;
+   }
+
    for (int line = 0; line < 11; line++) {
       if (!(c->iflags & (1u << line))) continue;
+      /* HALT and STOP are released by any request, masked or not — the kernel
+         HALTs with gie off and polls IR flags after the wake (e.g. DMA waits) */
+      c->stopped = 0;
       c->halted = 0;
-      c->stopped = 0;            /* any pending interrupt wakes HALT and STOP */
       c->ps0 = c->rd(c->ctx, 0x1e);
       c->ps1 = c->rd(c->ctx, 0x1f);
       uint8_t ie0 = c->rd(c->ctx, 0x10), ie1 = c->rd(c->ctx, 0x11);
       int prio = c->ps0 & 0x07, gie = c->ps1 & FI;
-      /* latch the request flag in IR0/IR1 even when masked (software polls these;
-         the handler clears them by writing 0x12/0x13) */
-      static const uint8_t IR0M[11] = { 0, 0x80, 0x40, 0x10, 0x08, 0x01, 0, 0, 0, 0, 0 };
-      static const uint8_t IR1M[11] = { 0, 0, 0, 0, 0, 0, 0x40, 0x10, 0x04, 0, 0 };
-      if (IR0M[line]) c->wr(c->ctx, 0x12, (uint8_t)(c->rd(c->ctx, 0x12) | IR0M[line]));
-      if (IR1M[line]) c->wr(c->ctx, 0x13, (uint8_t)(c->rd(c->ctx, 0x13) | IR1M[line]));
+      uint32_t before = c->irq_taken;
       switch (line) {
       case SM_WDT:  take_interrupt(c, 0x101C); break;
       case SM_ILL:
@@ -337,10 +355,12 @@ static void process_interrupts(sm8521_t *c)
       case SM_CK:   if ((ie1 & 0x10) && prio < 3 && gie) take_interrupt(c, 0x1016); break;
       case SM_PIO:  if ((ie1 & 0x04) && prio < 2 && gie) take_interrupt(c, 0x101A); break;
       }
-      /* a request is consumed whether or not it vectors (matches the hardware /
-         MAME: requests latched while masked are dropped, not queued) */
-      c->iflags &= ~(1u << line);
-      c->wr(c->ctx, 0x1f, c->ps1);
+      if (c->irq_taken != before) {                     /* vectored: consume the request */
+         c->iflags &= ~(1u << line);
+         if (IR0M[line]) c->wr(c->ctx, 0x12, (uint8_t)(c->rd(c->ctx, 0x12) & ~IR0M[line]));
+         if (IR1M[line]) c->wr(c->ctx, 0x13, (uint8_t)(c->rd(c->ctx, 0x13) & ~IR1M[line]));
+         c->wr(c->ctx, 0x1f, c->ps1);
+      }
    }
    if (c->iflags == 0) c->check_irq = 0;
 }
@@ -370,8 +390,17 @@ void sm8521_reset(sm8521_t *c)
 }
 void sm8521_set_irq(sm8521_t *c, int line, int asserted)
 {
-   if (asserted) { c->iflags |= (1u << line); c->check_irq = 1; }
-   else { c->iflags &= ~(1u << line); if (!c->iflags) c->check_irq = 0; }
+   if (asserted) {
+      c->iflags |= (1u << line);
+      c->check_irq = 1;
+      /* raise latches the request flag in IR0/IR1 immediately (software both
+         polls these and clears them to cancel a pending request) */
+      if (IR0M[line]) c->wr(c->ctx, 0x12, (uint8_t)(c->rd(c->ctx, 0x12) | IR0M[line]));
+      if (IR1M[line]) c->wr(c->ctx, 0x13, (uint8_t)(c->rd(c->ctx, 0x13) | IR1M[line]));
+   } else {
+      c->iflags &= ~(1u << line);
+      if (!c->iflags) c->check_irq = 0;
+   }
 }
 
 static void trap(sm8521_t *c, uint8_t op, uint16_t at) { c->trapped = 1; c->trap_op = op; c->trap_pc = at; }
