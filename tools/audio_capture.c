@@ -57,12 +57,14 @@ int main(int argc, char **argv)
          for (int c = 0; c < 13; c++) gcbus_set_touch(&sys.bus, c, 0);
          if (fr >= tapframe && fr < tapframe + 8)
             gcbus_set_touch(&sys.bus, 1, 1 << 2);
-         /* TB_PRESS="f1,f2,..." holds button A for 8 frames at each listed frame
+         /* TB_PRESS holds A; TB_PRESSC="f1,f2" holds C (in1 bit1) for 8 frames at each listed frame
             (advances title screens into the game's own menus).
             TB_HOLD="mask@f1-f2,..." holds in0 bits (active-low mask ANDed in)
             over frame ranges — e.g. F7@1900-2600 walks right into enemies. */
-         uint8_t in0 = 0xFF;
+         uint8_t in0 = 0xFF, in1x = 0xFF;
          const char *pr = getenv("TB_PRESS");
+         const char *prc = getenv("TB_PRESSC");
+         if (prc) { const char *p = prc; while (*p) { int pf = atoi(p); if (fr >= pf && fr < pf + 8) in1x = 0xFD; p = strchr(p, 44 ==44 ? 0x2c : 0x2c); if (!p) break; p++; } }
          if (pr) {
             const char *p = pr;
             while (*p) {
@@ -85,7 +87,7 @@ int main(int argc, char **argv)
                p++;
             }
          }
-         gcbus_set_buttons(&sys.bus, in0, 0xFF, 0xFF);
+         gcbus_set_buttons(&sys.bus, in0, in1x, 0xFF);
       }
       gcsystem_run_frame(&sys);
       {  /* count wavetable note events (any SGxT period register change) */
@@ -149,12 +151,13 @@ int main(int argc, char **argv)
          last_wave = sys.bus.snd_wave_writes;
          fprintf(stderr,
             "[%4.1fs] TM0C=%02X TM0tc=%02X TM1C=%02X TM1tc=%02X SGC=%02X "
-            "SG0T=%03X SG0L=%02X SG1T=%03X | dac/s=%u wave/s=%u ovf/s=%u notes/s=%d\n",
+            "SG0T=%03X SG0L=%02X SG1T=%03X SG2T=%03X SG2L=%02X | dac/s=%u wave/s=%u ovf/s=%u notes/s=%d\n",
             (fr + 1) / 59.73,
             sys.bus.ram[0x50], sys.bus.timer[0].reload,
             sys.bus.ram[0x52], sys.bus.timer[1].reload, sys.bus.ram[0x40],
             ((sys.bus.ram[0x46] << 8) | sys.bus.ram[0x47]) & 0xFFF, sys.bus.ram[0x42] & 0x1F,
             ((sys.bus.ram[0x48] << 8) | sys.bus.ram[0x49]) & 0xFFF,
+            ((sys.bus.ram[0x4C] << 8) | sys.bus.ram[0x4D]) & 0xFFF, sys.bus.ram[0x4A] & 0x1F,
             d, w, o, note_events);
          note_events = 0;
       }

@@ -75,7 +75,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
    info->library_name     = "Tigerbyte";
-   info->library_version  = "0.3.6";
+   info->library_version  = "0.3.7";
    info->valid_extensions = "tgc|bin";
    info->need_fullpath    = false;     /* deliver the cart image in game->data */
    info->block_extract    = false;
@@ -203,9 +203,10 @@ void retro_run(void)
             for (i = 0; i < sys.audio_samples; i++) {
                int v = sys.audio[i * 2]; if (v < 0) v = -v; if (v > peak) peak = v;
             }
-            tb_log("[snd] SGC=%02X periods=%03X/%03X lvls=%02X/%02X DAC=%02X TM1=%02X/%02X | writes/s ctrl=%u dac=%u wave=%u | peak=%d\n",
+            tb_log("[snd] SGC=%02X periods=%03X/%03X lvls=%02X/%02X SG2=%03X/%02X DAC=%02X TM1=%02X/%02X | writes/s ctrl=%u dac=%u wave=%u | peak=%d\n",
                r[0x40], ((r[0x46] << 8) | r[0x47]) & 0xFFF, ((r[0x48] << 8) | r[0x49]) & 0xFFF,
-               r[0x42] & 0x1F, r[0x44] & 0x1F, r[0x4E],
+               r[0x42] & 0x1F, r[0x44] & 0x1F,
+               ((r[0x4C] << 8) | r[0x4D]) & 0xFFF, r[0x4A] & 0x1F, r[0x4E],
                r[0x52], sys.bus.timer[1].reload,
                reg, dac, wav, peak);
             {  /* display state — catches a black screen (display off / empty page) */
@@ -273,7 +274,7 @@ bool retro_load_game(const struct retro_game_info *game)
 
    gcsystem_reset(&sys);
    system_ready = 1;
-   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.6 clock=%d\n",
+   tb_log("loaded OK: cart_size=%lu system_ready=%d build=0.3.7 clock=%d\n",
           (unsigned long)(game ? game->size : 0), system_ready, sys.clock_hz);
    return true;
 }

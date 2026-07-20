@@ -67,7 +67,10 @@ int main(int argc, char **argv)
       touch held; both applied after 1/3 of the run. TB_TAPS="c,r@f;c,r@f;..."
       scripts multiple taps (each held 8 frames from its @frame). */
    const char *be = getenv("TB_IN0"), *te = getenv("TB_TAP"), *ts = getenv("TB_TAPS");
-   uint8_t hold = be ? (uint8_t)strtoul(be, NULL, 16) : 0xFF;
+   const char *b1 = getenv("TB_IN1"), *b2 = getenv("TB_IN2");
+   uint8_t hold  = be ? (uint8_t)strtoul(be, NULL, 16) : 0xFF;
+   uint8_t hold1 = b1 ? (uint8_t)strtoul(b1, NULL, 16) : 0xFF;
+   uint8_t hold2 = b2 ? (uint8_t)strtoul(b2, NULL, 16) : 0xFF;
    int tcol = -1, trow = 0;
    if (te) sscanf(te, "%d,%d", &tcol, &trow);
    int scol[16], srow[16], sfr[16], ntap = 0;
@@ -82,13 +85,27 @@ int main(int argc, char **argv)
          p++;
       }
    }
-   /* a proper tap: press for ~8 frames, then release (a touch UI acts on release) */
-   int t0 = frames / 3, t1 = t0 + 8;
+   /* a proper tap: press for ~8 frames, then release (a touch UI acts on release).
+      TB_AT overrides the hold window's start frame (default: 1/3 of the run).
+      TB_PRESS="f1,f2,..." holds button A for 8 frames at each listed frame. */
+   int t0 = getenv("TB_AT") ? atoi(getenv("TB_AT")) : frames / 3, t1 = t0 + 8;
+   const char *press = getenv("TB_PRESS");
    int audio_peak = 0;
    uint32_t p_irq = 0, p_ovf = 0, p_dac = 0;
    for (int f = 0; f < frames && !sys.cpu.trapped; f++) {
       int act = (f >= t0 && f < t1);
-      gcbus_set_buttons(&sys.bus, act ? hold : 0xFF, 0xFF, 0xFF);
+      uint8_t in0 = act ? hold : 0xFF;
+      if (press) {
+         const char *p = press;
+         while (*p) {
+            int pf = atoi(p);
+            if (f >= pf && f < pf + 8) in0 &= 0x7F;   /* A held (active-low bit7) */
+            p = strchr(p, ',');
+            if (!p) break;
+            p++;
+         }
+      }
+      gcbus_set_buttons(&sys.bus, in0, act ? hold1 : 0xFF, act ? hold2 : 0xFF);
       for (int c = 0; c < 13; c++) gcbus_set_touch(&sys.bus, c, 0);
       if (act && tcol >= 0) gcbus_set_touch(&sys.bus, tcol, (uint16_t)(1 << trow));
       for (int k = 0; k < ntap; k++)
