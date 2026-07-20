@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Headless boot-audio capture: boots the core (no cart) and dumps N frames of
- * audio to a 44.1 kHz stereo WAV, so the OS boot jingle can be measured against a
- * real-hardware recording for timing/pitch calibration.
+/* Headless boot-audio capture: boots the core (optionally launching a cart via
+ * a scripted menu tap) and dumps N frames of audio to a 44.1 kHz stereo WAV, so
+ * jingles and in-game music can be measured against real-hardware recordings.
  *
- *   audio_capture internal.bin external.bin out.wav <frames>
+ *   audio_capture internal.bin external.bin out.wav <frames> [cart.tgc [tapframe]]
  */
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include "../src/sys/gcsystem.h"
 #include "../src/cpu/sm8521_disasm.h"
 
@@ -20,9 +21,11 @@ static void w16(FILE *f, uint16_t v) { fputc(v & 0xff, f); fputc((v >> 8) & 0xff
 
 int main(int argc, char **argv)
 {
-   if (argc < 5) { fprintf(stderr, "usage: %s internal.bin external.bin out.wav frames\n", argv[0]); return 1; }
+   if (argc < 5) { fprintf(stderr, "usage: %s internal.bin external.bin out.wav frames [cart [tapframe]]\n", argv[0]); return 1; }
    const char *ipath = argv[1], *epath = argv[2], *opath = argv[3];
    int frames = atoi(argv[4]);
+   const char *cart = (argc > 5) ? argv[5] : NULL;
+   int tapframe = (argc > 6) ? atoi(argv[6]) : 700;
    const int rate = 44100;
 
    gcsystem_init(&sys);
@@ -32,6 +35,7 @@ int main(int argc, char **argv)
    }
    if (gcsystem_load_internal(&sys, ipath) != 0) { fprintf(stderr, "load internal.bin failed\n"); return 1; }
    if (gcsystem_load_external(&sys, epath) != 0) { fprintf(stderr, "load external.bin failed\n"); return 1; }
+   if (cart && gcsystem_load_cart(&sys, cart) != 0) { fprintf(stderr, "load cart failed\n"); return 1; }
    gcsystem_reset(&sys);
 
    FILE *f = fopen(opath, "wb");
@@ -45,8 +49,38 @@ int main(int argc, char **argv)
 
    long nsamp = 0;
    uint32_t last_dac = 0;
+   uint32_t last_ovf = 0;
+   int note_events = 0;
+   uint8_t last_sgt[4] = { 0, 0, 0, 0 };   /* SG0T hi/lo, SG1T hi/lo shadows */
    for (int fr = 0; fr < frames; fr++) {
+      if (cart) {          /* launch tap on the menu's cartridge icon (zone 1,2) */
+         for (int c = 0; c < 13; c++) gcbus_set_touch(&sys.bus, c, 0);
+         if (fr >= tapframe && fr < tapframe + 8)
+            gcbus_set_touch(&sys.bus, 1, 1 << 2);
+         /* TB_PRESS="f1,f2,..." holds button A for 8 frames at each listed frame
+            (advances title screens into the game's own menus) */
+         uint8_t in0 = 0xFF;
+         const char *pr = getenv("TB_PRESS");
+         if (pr) {
+            const char *p = pr;
+            while (*p) {
+               int pf = atoi(p);
+               if (fr >= pf && fr < pf + 8) in0 = 0x7F;   /* A held (active-low bit7) */
+               p = strchr(p, ',');
+               if (!p) break;
+               p++;
+            }
+         }
+         gcbus_set_buttons(&sys.bus, in0, 0xFF, 0xFF);
+      }
       gcsystem_run_frame(&sys);
+      {  /* count wavetable note events (any SGxT period register change) */
+         static const int sgt_addr[4] = { 0x46, 0x47, 0x48, 0x49 };
+         for (int i = 0; i < 4; i++) {
+            uint8_t v = sys.bus.ram[sgt_addr[i]];
+            if (v != last_sgt[i]) { last_sgt[i] = v; if (i == 0 || i == 2) note_events++; }
+         }
+      }
       for (int i = 0; i < sys.audio_samples; i++) {
          w16(f, (uint16_t)sys.audio[i * 2]);
          w16(f, (uint16_t)sys.audio[i * 2 + 1]);
@@ -91,11 +125,21 @@ int main(int argc, char **argv)
             fprintf(stderr, " %u", sys.bus.dac_cycle[i] - sys.bus.dac_cycle[i - 1]);
          fprintf(stderr, "\n");
       }
-      if ((fr % 30) == 29) {   /* twice/sec: the game's live TIM1 config + our DAC rate */
-         uint32_t d = (sys.bus.snd_dac_writes - last_dac) * 2;  /* -> per second */
+      if ((fr % 60) == 59) {   /* once/sec: timers, wavetable state, rates */
+         uint32_t d = sys.bus.snd_dac_writes - last_dac;
+         uint32_t o = sys.bus.dbg_ovf - last_ovf;
          last_dac = sys.bus.snd_dac_writes;
-         fprintf(stderr, "[%4.1fs] TM1C=%02X TM1D=%02X SGC=%02X | dac/s=%u\n",
-                 (fr + 1) / 59.73, sys.bus.ram[0x52], sys.bus.ram[0x53], sys.bus.ram[0x40], d);
+         last_ovf = sys.bus.dbg_ovf;
+         fprintf(stderr,
+            "[%4.1fs] TM0C=%02X TM0tc=%02X TM1C=%02X TM1tc=%02X SGC=%02X "
+            "SG0T=%03X SG1T=%03X | dac/s=%u ovf/s=%u notes/s=%d\n",
+            (fr + 1) / 59.73,
+            sys.bus.ram[0x50], sys.bus.timer[0].reload,
+            sys.bus.ram[0x52], sys.bus.timer[1].reload, sys.bus.ram[0x40],
+            ((sys.bus.ram[0x46] << 8) | sys.bus.ram[0x47]) & 0xFFF,
+            ((sys.bus.ram[0x48] << 8) | sys.bus.ram[0x49]) & 0xFFF,
+            d, o, note_events);
+         note_events = 0;
       }
    }
 

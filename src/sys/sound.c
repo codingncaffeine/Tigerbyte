@@ -20,10 +20,11 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
 
    int sg0t = ((ram[0x46] << 8) | ram[0x47]) & 0x0FFF;
    int sg1t = ((ram[0x48] << 8) | ram[0x49]) & 0x0FFF;
-   /* Datasheet p.42: step period = (n-1)/fCK, fCK = the system clock.
-      Tone = fCK / (32 * (n-1)). (MAME's 2,764,800 derives from its wrong crystal;
-      our earlier 2,457,600 put the wavetable an octave too low.) */
-   float fck = (float)cyc_per_frame * 59.732155f;
+   /* Datasheet p.42: step period = (n-1)/fCK. The sound generator runs from the
+      crystal-locked 4.9152 MHz, NOT the software-variable CPU clock — dialing
+      the CPU-speed option must not retune the music. (MAME's 2,764,800 derives
+      from its wrong crystal; 2,457,600 put the wavetable an octave too low.) */
+   const float fck = 4915200.0f;
    float f0 = (master && en0 && sg0t > 1) ? (fck / (sg0t - 1)) / rate : 0.0f;
    float f1 = (master && en1 && sg1t > 1) ? (fck / (sg1t - 1)) / rate : 0.0f;
    int   l0 = ram[0x42] & 0x1F, l1 = ram[0x44] & 0x1F;       /* 5-bit levels */

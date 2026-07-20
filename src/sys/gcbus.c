@@ -225,16 +225,23 @@ static void gcbus_dma(gcbus_t *b)
    }
 }
 
-/* TM*C prescaler-select -> divisor. The datasheet's table (p.31: fCK/2, /1024,
-   ... /65536) describes the timer OUTPUT square wave, which inverts on each
-   counter/time-constant coincidence — so coincidences (and the interrupt) run at
-   TWICE those rates, i.e. an effective divisor of half the table. Empirically
-   pinned by the real-hardware boot recording: the kernel programs sel=0/TC=208
-   and streams the DAC from every 3rd TIM1 interrupt; only the halved divisor
-   (interrupt rate fCK/208 = 23.6 kHz, DAC ~7.9 kHz) reproduces the recording's
-   pitch/length — fCK/(2*208) leaves the jingle an octave low and twice as long.
-   (Same trap MAME's "countdown goes twice as fast as it should" note fell in.) */
-static const int TIMER_EFF_DIV[8] = { 1, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
+/* TM*C prescaler-select -> divisor of the FIXED 4.9152 MHz timer input clock.
+   Empirically pinned against real-hardware recordings, resolving the datasheet
+   table's (p.31) ambiguity two ways:
+   - sel 0 is the DIRECT tap: the boot jingle (sel=0, TC=208, DAC on every 3rd
+     interrupt) only matches the recording at 4.9152e6/208 = 23.6 kHz. Reading
+     the table's "fCK/2" as a divisor leaves it an octave low and twice as long
+     (MAME's "countdown goes twice as fast as it should" is the same trap).
+   - sel 1+ are table-exact: game menu music ticking at sel=1/TC=24 is retail-
+     speed at 4.9152e6/1024/24 = 200 Hz (halving this tap ran it 2.5x fast),
+     and the boot jingle's inter-phrase gap only reaches the recording's 1.65 s
+     at the same rate. */
+static const int TIMER_EFF_DIV[8] = { 1, 1024, 2048, 4096, 8192, 16384, 32768, 65536 };
+
+/* The timer block runs from the crystal, NOT the (software-variable) CPU clock:
+   dialing the CPU-speed core option up or down must not retune music tempo or
+   DAC rates — measured on real hardware behavior (tempo is clock-invariant). */
+#define GC_TIMER_HZ 4915200.0
 
 void gcbus_set_irq_handler(gcbus_t *b, gc_irq_fn fn, void *user)
 {
@@ -260,6 +267,14 @@ void gcbus_tick(gcbus_t *b, int cycles, int stopped)
       b->ck_accum = 0;
 
    if (stopped) return;              /* STOP halts the main clock: TM0/TM1 + blitter freeze */
+
+   /* convert elapsed CPU cycles (at the possibly-overclocked CPU rate) into
+      fixed-rate timer clocks so timer/music rates stay hardware-true */
+   {
+      double t = b->tclk_frac + (double)cycles * (GC_TIMER_HZ / (double)b->clock_hz);
+      cycles = (int)t;
+      b->tclk_frac = t - cycles;
+   }
 
    if (b->dma_cycles_left > 0) {
       b->dma_cycles_left -= cycles;
