@@ -22,6 +22,8 @@ typedef struct {
    int      dac_last;   /* DAC level carried across frame seams    */
    int      dac_primed; /* dac_last holds a real level             */
    uint8_t  wave[2][16];/* live wavetable shadow, refill-accurate  */
+   long     wave_last_cyc[2]; /* last refill-write cycle per channel (slice detect) */
+   float    lp;         /* one-pole output lowpass state           */
 } gc_sound_t;
 
 /* Generate `n` interleaved-stereo int16 samples from the register page `ram`.

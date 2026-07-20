@@ -56,6 +56,9 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
       memcpy(s->wave[1], &ram[0x70], 16);
    }
    int ww = 0;
+   /* cycle positions restart each frame; a burst near a frame seam whose
+      predecessor was late in the previous frame is a genuine new slice */
+   s->wave_last_cyc[0] = s->wave_last_cyc[1] = -100000;
 
    /* SG2 noise channel — Furnace's reconstruction (32-bit LFSR, taps 0/5/8/13,
       output toggles on bit-0 edges). Unimplemented in MAME and elsewhere; this is
@@ -77,10 +80,20 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
    for (int i = 0; i < n; i++) {
       long tc = (long)i * cyc_per_frame / n;
 
-      /* apply wavetable refills that happened up to this instant */
+      /* apply wavetable refills that happened up to this instant; a burst after
+         a long gap is a new voice slice — the driver disables the channel to
+         rewrite it, which realigns playback on hardware, so snap the step
+         counter to the slice start (free-running drift rotates every slice a
+         little further and garbles speech into a mushy version of itself) */
       while (ww < wave_n && (long)wave_cycle[ww] <= tc) {
-         int a = wave_addr[ww];
-         s->wave[(a >> 4) & 1][a & 0xF] = wave_val[ww];
+         int a  = wave_addr[ww];
+         int ch = (a >> 4) & 1;
+         if ((long)wave_cycle[ww] - s->wave_last_cyc[ch] > 4000) {
+            s->idx[ch] = 0;
+            s->phase[ch] = 0.0f;
+         }
+         s->wave_last_cyc[ch] = (long)wave_cycle[ww];
+         s->wave[ch][a & 0xF] = wave_val[ww];
          ww++;
       }
 
@@ -122,6 +135,12 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
          }
          if (!dac_owns_out) mix += ((s->noise_out ? 7 : -8) * l2) * 16;
       }
+
+      /* one-pole lowpass ≈ the console's analog output path: tames the raw
+         4-bit step harmonics that make voices and tones harsher than the
+         speaker ever sounded (gentle, ~5 kHz — nothing musical is touched) */
+      s->lp += 0.5f * ((float)mix - s->lp);
+      mix = (int)s->lp;
 
       if (mix > 32767)  mix = 32767;
       if (mix < -32768) mix = -32768;
