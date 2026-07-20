@@ -351,6 +351,7 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
          b->ram[0x2D] |= 0x02;                           /* URTS: TDRE (transmit empty) */
          return;
       }
+      if (addr >= 0x60 && addr <= 0x7F) b->snd_wave_writes++;   /* wavetable RAM */
       if (addr >= 0x40 && addr <= 0x4F) {                /* sound registers */
          b->snd_reg_writes++;
          if (addr == 0x4E) {                             /* capture the DAC stream + write timing */

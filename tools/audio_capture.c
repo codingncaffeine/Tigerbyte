@@ -58,7 +58,9 @@ int main(int argc, char **argv)
          if (fr >= tapframe && fr < tapframe + 8)
             gcbus_set_touch(&sys.bus, 1, 1 << 2);
          /* TB_PRESS="f1,f2,..." holds button A for 8 frames at each listed frame
-            (advances title screens into the game's own menus) */
+            (advances title screens into the game's own menus).
+            TB_HOLD="mask@f1-f2,..." holds in0 bits (active-low mask ANDed in)
+            over frame ranges — e.g. F7@1900-2600 walks right into enemies. */
          uint8_t in0 = 0xFF;
          const char *pr = getenv("TB_PRESS");
          if (pr) {
@@ -66,6 +68,18 @@ int main(int argc, char **argv)
             while (*p) {
                int pf = atoi(p);
                if (fr >= pf && fr < pf + 8) in0 = 0x7F;   /* A held (active-low bit7) */
+               p = strchr(p, ',');
+               if (!p) break;
+               p++;
+            }
+         }
+         const char *hl = getenv("TB_HOLD");
+         if (hl) {
+            const char *p = hl;
+            while (*p) {
+               unsigned mask; int f1, f2;
+               if (sscanf(p, "%x@%d-%d", &mask, &f1, &f2) == 3 && fr >= f1 && fr <= f2)
+                  in0 &= (uint8_t)mask;
                p = strchr(p, ',');
                if (!p) break;
                p++;
@@ -126,19 +140,22 @@ int main(int argc, char **argv)
          fprintf(stderr, "\n");
       }
       if ((fr % 60) == 59) {   /* once/sec: timers, wavetable state, rates */
+         static uint32_t last_wave = 0;
          uint32_t d = sys.bus.snd_dac_writes - last_dac;
          uint32_t o = sys.bus.dbg_ovf - last_ovf;
+         uint32_t w = sys.bus.snd_wave_writes - last_wave;
          last_dac = sys.bus.snd_dac_writes;
          last_ovf = sys.bus.dbg_ovf;
+         last_wave = sys.bus.snd_wave_writes;
          fprintf(stderr,
             "[%4.1fs] TM0C=%02X TM0tc=%02X TM1C=%02X TM1tc=%02X SGC=%02X "
-            "SG0T=%03X SG1T=%03X | dac/s=%u ovf/s=%u notes/s=%d\n",
+            "SG0T=%03X SG0L=%02X SG1T=%03X | dac/s=%u wave/s=%u ovf/s=%u notes/s=%d\n",
             (fr + 1) / 59.73,
             sys.bus.ram[0x50], sys.bus.timer[0].reload,
             sys.bus.ram[0x52], sys.bus.timer[1].reload, sys.bus.ram[0x40],
-            ((sys.bus.ram[0x46] << 8) | sys.bus.ram[0x47]) & 0xFFF,
+            ((sys.bus.ram[0x46] << 8) | sys.bus.ram[0x47]) & 0xFFF, sys.bus.ram[0x42] & 0x1F,
             ((sys.bus.ram[0x48] << 8) | sys.bus.ram[0x49]) & 0xFFF,
-            d, o, note_events);
+            d, w, o, note_events);
          note_events = 0;
       }
    }

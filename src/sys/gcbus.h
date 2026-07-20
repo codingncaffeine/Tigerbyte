@@ -48,6 +48,7 @@ typedef struct {
    uint32_t   dbg_ovf_raised;            /* overflows that passed the IRQ gate */
    uint32_t   snd_dac_writes;            /* writes to the DAC reg (0x4E) — sound debug */
    uint32_t   snd_reg_writes;            /* writes to any sound ctrl reg (0x40-0x4F) — sound debug */
+   uint32_t   snd_wave_writes;           /* writes to wavetable RAM (0x60-0x7F) — voice-streaming debug */
    uint8_t    dac_stream[2048];          /* DAC (0x4E) values captured in write order this frame */
    uint32_t   dac_cycle[2048];           /* cycle-within-frame each DAC write happened at (~0..82287) */
    int        dac_stream_n;              /* count captured this frame (reset each frame) */

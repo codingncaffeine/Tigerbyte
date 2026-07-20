@@ -38,9 +38,10 @@ void gc_sound_generate(gc_sound_t *s, const uint8_t *ram,
       generators don't reach it: games play digitized voice over music by just
       streaming SGDA without cleaning up the wavetable registers (observed: both
       channels parked at max level on one period during a voice line — mixing
-      them buries the voice under a loud constant tone). A few stray writes per
-      frame (idle-level refreshes between notes) must NOT mute the music. */
-   int   dac_owns_out = dac_n >= 4;
+      them buries the voice under a loud constant tone). Music frames carry at
+      most ~0.1 stray idle-level writes per frame, while even the quietest voice
+      lines measure ~2.8/frame — threshold 2 splits them with wide margin. */
+   int   dac_owns_out = dac_n >= 2;
 
    /* SG2 noise channel — Furnace's reconstruction (32-bit LFSR, taps 0/5/8/13,
       output toggles on bit-0 edges). Unimplemented in MAME and elsewhere; this is
