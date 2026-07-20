@@ -61,6 +61,7 @@ typedef struct {
    uint32_t   dbg_ck;                    /* clock-timer interrupts raised */
    int        dma_cycles_left;           /* blitter busy time remaining (completion IRQ pends) */
    int        dma_armed;                 /* DMC start written; transfer runs at the next HALT */
+   int        dma_arm_age;               /* cycles since arming (fallback for games that poll) */
    int        uart_cycles_left;          /* pending transmit-done interrupt (nothing attached) */
    int        uart_level_accum;          /* periodic transmit-empty request while port enabled */
    uint32_t   clock_hz;                  /* CPU clock, for the 1 s clock-timer period */

@@ -304,6 +304,15 @@ void gcbus_tick(gcbus_t *b, int cycles, int stopped)
       }
    }
 
+   /* Games that poll the DMC busy bit instead of halting never reach the
+      HALT trigger — run the armed blit after a short deadline (well past any
+      register-rewrite window, far below perception). */
+   if (b->dma_armed) {
+      b->dma_arm_age += cycles;
+      if (b->dma_arm_age > 2000)
+         gcbus_dma_run_if_armed(b);
+   }
+
    if (b->uart_cycles_left > 0) {
       b->uart_cycles_left -= cycles;
       if (b->uart_cycles_left <= 0) {
@@ -413,7 +422,7 @@ void gcbus_write(void *ctx, uint16_t addr, uint8_t val)
             writing blit registers between the two; snapshotting here executed
             those blits with stale parameters. Arm now, run at the HALT.
             (Bare-CPU tools with no IRQ sink keep the immediate behavior.) */
-         if (b->irq) b->dma_armed = 1;
+         if (b->irq) { b->dma_armed = 1; b->dma_arm_age = 0; }
          else gcbus_dma(b);
       }
       return;
